@@ -90,29 +90,34 @@ NO "explain your reasoning" — wastes tokens.
 Keep the prompt short and high-signal. The model does the rest.`,
 
 
-"gemini": `Target: Gemini (2.5 Flash, 2.5 Pro, 3.x Flash/Pro)
+"gemini": `Target: Gemini (2.5 Flash, 2.5 Pro, 3.x/4.x Flash/Pro)
 
-BEHAVIORAL NOTE: Use ONE consistent delimiter system per prompt — XML tags OR
-Markdown headers. Never mix. Gemini 3.x may drop constraints placed only at the
-beginning on complex requests — always restate non-negotiables at the END.
+BEHAVIORAL NOTE: Use XML tags as delimiters. Gemini may ignore constraints
+placed only at the beginning of long prompts — always restate the single most
+critical constraint as plain text at the very bottom.
 
-STRUCTURE: XML tags (recommended for code/data tasks):
-<instructions>  — role + hard rules + output format  ← PUT FIRST
-<context>       — codebase summary, relevant files
-<task>          — specific request
-[Restate the single most critical constraint as plain text at the very bottom]
+DUPLICATION PREVENTION:
+- Do NOT copy-paste the same instruction paragraphs across <instructions>,
+  <context>, and <task>.
+- Keep the contents of each tag unique and focused.
 
-CONSTRAINTS:
-- Hard constraints go in <instructions> (top) AND restated at the bottom — required.
-- For structured output: describe the JSON shape field-by-field with an example.
-- Note for user: for strict schema enforcement, use the responseSchema API param.
+STRUCTURE: XML tags:
+<instructions>  — Role, technology constraints, validation rules, output format.
+                  PUT RULES HERE, NOT IN CONTEXT.
+<context>       — Read-only facts about the codebase, existing files, framework.
+                  NO COMMANDS OR TASKS HERE.
+<task>          — A brief, single-sentence statement of action.
+                  Do not repeat the instructions here.
 
 CONTEXT PLACEMENT: Large code/docs go BEFORE the task.
 End with: "Based on the information above, [task]."
-For critical multi-fact tasks: restate the question at BOTH top and bottom.
 
-REASONING: Do not instruct the model on how to think — Gemini uses adaptive
-thinking by default. Adding CoT steps reduces quality.`,
+CONFLICT RESOLUTION:
+If the user request contradicts the repository technology stack (e.g., asking
+for JS/CSS in a Flutter repo), resolve it in the ASSUMPTIONS block at the very
+top before the first XML tag.
+
+REASONING: Do not write CoT instructions — Gemini uses adaptive thinking.`,
 
 
 "kimi": `Target: Kimi K2 (Moonshot AI — K2, K2.5, K2.6)

@@ -19,6 +19,10 @@ const GENERATION_COST = {
   kimi: 50,
 };
 
+const PROMO_CODES = {
+  TKLOUNCHER2026: { credits: 1500, label: "TK Launcher 2026" },
+};
+
 const MAX_TASK_CHARS = 2000;
 const DAY_SECONDS = 86400;
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -47,6 +51,28 @@ export default {
           isAdmin: isAdmin(env, telegramUser.id),
           packages: PACKAGES,
           generationCost: GENERATION_COST,
+        });
+      }
+
+      if (url.pathname === "/api/history" && request.method === "GET") {
+        const telegramUser = await requireTelegramUser(request, env);
+        return json({ history: await getHistory(env.DB, telegramUser.id) });
+      }
+
+      if (url.pathname === "/api/promo/redeem" && request.method === "POST") {
+        const telegramUser = await requireTelegramUser(request, env);
+        const body = await readJson(request);
+        const result = await redeemPromo(env.DB, telegramUser.id, body.code);
+        if (result.error === "invalid_code") {
+          return json({ error: "invalid_code", message: "Promo code not found" }, 400);
+        }
+        if (result.error === "already_used") {
+          return json({ error: "already_used", message: "Already redeemed" }, 409);
+        }
+        return json({
+          credits: result.credits,
+          label: result.label,
+          message: `+${result.credits} credits added`,
         });
       }
 
@@ -125,8 +151,8 @@ async function handleGenerate(request, env) {
   }
 
   const creditResult = admin
-    ? { ok: true, credits: user.credits, spent: 0 }
-    : await deductCredits(env.DB, telegramUser.id, strategy);
+    ? await recordUsage(env.DB, telegramUser.id, strategy, task, result, 0)
+    : await deductCredits(env.DB, telegramUser.id, strategy, task, result);
   if (!creditResult.ok) {
     return json(
       {
@@ -252,7 +278,7 @@ async function getUser(db, telegramId) {
   return { credits: 150, totalEarned: 0 };
 }
 
-async function deductCredits(db, telegramId, strategy) {
+async function deductCredits(db, telegramId, strategy, task = null, promptText = null) {
   const id = Number(telegramId);
   const cost = GENERATION_COST[strategy] ?? 50;
   await getUser(db, id);
@@ -267,11 +293,36 @@ async function deductCredits(db, telegramId, strategy) {
     return { ok: false, credits: user.credits, required: cost };
   }
   await db
-    .prepare("INSERT INTO usage_log (telegram_id, strategy, credits_spent) VALUES (?, ?, ?)")
-    .bind(id, strategy, cost)
+    .prepare(
+      "INSERT INTO usage_log (telegram_id, strategy, credits_spent, task, prompt_text) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(id, strategy, cost, task, promptText)
     .run();
   const user = await getUser(db, id);
   return { ok: true, credits: user.credits, spent: cost };
+}
+
+async function recordUsage(db, telegramId, strategy, task = null, promptText = null, creditsSpent = 0) {
+  const id = Number(telegramId);
+  await getUser(db, id);
+  await db
+    .prepare(
+      "INSERT INTO usage_log (telegram_id, strategy, credits_spent, task, prompt_text) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(id, strategy, creditsSpent, task, promptText)
+    .run();
+  const user = await getUser(db, id);
+  return { ok: true, credits: user.credits, spent: creditsSpent };
+}
+
+async function getHistory(db, telegramId) {
+  const result = await db
+    .prepare(
+      "SELECT id, strategy, task, prompt_text, credits_spent, created_at FROM usage_log WHERE telegram_id = ? ORDER BY created_at DESC, id DESC LIMIT 30"
+    )
+    .bind(Number(telegramId))
+    .all();
+  return result.results || [];
 }
 
 async function addCredits(db, telegramId, starsPaid, creditsToAdd, payload, paymentId) {
@@ -295,6 +346,30 @@ async function addCredits(db, telegramId, starsPaid, creditsToAdd, payload, paym
     .run();
   const user = await getUser(db, id);
   return { ok: true, duplicate: false, credits: user.credits };
+}
+
+async function redeemPromo(db, telegramId, code) {
+  const normalized = String(code || "").toUpperCase().trim();
+  const promo = PROMO_CODES[normalized];
+  if (!promo) return { error: "invalid_code" };
+
+  try {
+    const result = await db
+      .prepare(
+        "INSERT INTO promo_redemptions (telegram_id, promo_code, credits_added) VALUES (?, ?, ?)"
+      )
+      .bind(Number(telegramId), normalized, promo.credits)
+      .run();
+    if (!result.meta?.changes) return { error: "already_used" };
+  } catch (error) {
+    if (String(error.message || error).includes("UNIQUE")) {
+      return { error: "already_used" };
+    }
+    throw error;
+  }
+
+  await addCredits(db, telegramId, 0, promo.credits, { promo: normalized }, null);
+  return { success: true, credits: promo.credits, label: promo.label };
 }
 
 async function getStats(db) {

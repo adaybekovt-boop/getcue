@@ -39,11 +39,29 @@ db.exec(`
     payload       TEXT NOT NULL,
     created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
+
+  CREATE TABLE IF NOT EXISTS promo_redemptions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id   INTEGER NOT NULL,
+    promo_code    TEXT NOT NULL,
+    credits_added INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    UNIQUE(telegram_id, promo_code)
+  );
 `);
 
 const purchaseColumns = db.prepare("PRAGMA table_info(purchase_log)").all();
 if (!purchaseColumns.some((column) => column.name === "payment_id")) {
   db.exec("ALTER TABLE purchase_log ADD COLUMN payment_id TEXT");
+}
+
+// History feature: record the task text and generated prompt per usage entry.
+const usageColumns = db.prepare("PRAGMA table_info(usage_log)").all();
+if (!usageColumns.some((column) => column.name === "task")) {
+  db.exec("ALTER TABLE usage_log ADD COLUMN task TEXT");
+}
+if (!usageColumns.some((column) => column.name === "prompt_text")) {
+  db.exec("ALTER TABLE usage_log ADD COLUMN prompt_text TEXT");
 }
 
 db.exec(`

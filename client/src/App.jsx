@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import { api } from "./api.js";
-import MainScreen from "./screens/MainScreen.jsx";
+import GenerateScreen from "./screens/GenerateScreen.jsx";
+import HistoryScreen from "./screens/HistoryScreen.jsx";
+import SettingsScreen from "./screens/SettingsScreen.jsx";
 import ProScreen from "./screens/ProScreen.jsx";
-import ProfileScreen from "./screens/ProfileScreen.jsx";
-import AuroraBackground from "./components/AuroraBackground.jsx";
 import BottomNav from "./components/BottomNav.jsx";
+import AuroraBackground from "./components/AuroraBackground.jsx";
 import SplashScreen from "./components/SplashScreen.jsx";
 
 export default function App() {
-  // Shared account state, loaded once from /api/me.
   const [me, setMe] = useState(null); // { credits, isAdmin, packages, generationCost }
-  const [meError, setMeError] = useState(null);
+  const [, setMeError] = useState(null);
+  const [history, setHistory] = useState(null); // null = not loaded yet
 
-  // Launch splash: visible ~3s, fading the last 400ms, then unmounted.
+  // Launch splash: ~3s, fading the last 400ms.
   const [booting, setBooting] = useState(true);
   const [splashFading, setSplashFading] = useState(false);
 
@@ -43,25 +44,47 @@ export default function App() {
     };
   }, []);
 
-  const setCredits = (credits) => setMe((prev) => (prev ? { ...prev, credits } : prev));
+  const setCredits = (credits) =>
+    setMe((prev) => (prev ? { ...prev, credits } : prev));
+
+  const addLocalHistory = (entry) =>
+    setHistory((prev) => [entry, ...(prev || [])]);
 
   return (
     <>
+      <div className="app-shell">
+        <div className="screen-area">
+          <Routes>
+            <Route
+              path="/"
+              element={
+                <GenerateScreen
+                  me={me}
+                  setCredits={setCredits}
+                  onGenerated={addLocalHistory}
+                />
+              }
+            />
+            <Route
+              path="/history"
+              element={<HistoryScreen history={history} setHistory={setHistory} />}
+            />
+            <Route
+              path="/settings"
+              element={<SettingsScreen me={me} refreshMe={refreshMe} />}
+            />
+            <Route
+              path="/pro"
+              element={
+                <ProScreen me={me} setCredits={setCredits} refreshMe={refreshMe} />
+              }
+            />
+          </Routes>
+        </div>
+        <BottomNav />
+      </div>
+
       <AuroraBackground />
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <MainScreen me={me} meError={meError} setCredits={setCredits} />
-          }
-        />
-        <Route
-          path="/pro"
-          element={<ProScreen me={me} setCredits={setCredits} refreshMe={refreshMe} />}
-        />
-        <Route path="/profile" element={<ProfileScreen me={me} />} />
-      </Routes>
-      <BottomNav />
       {booting && <SplashScreen fadingOut={splashFading} />}
     </>
   );

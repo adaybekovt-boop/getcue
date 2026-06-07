@@ -8,10 +8,12 @@ import express from "express";
 import generateRouter from "./routes/generate.js";
 import paymentRouter from "./routes/payment.js";
 import webhookRouter from "./routes/webhook.js";
+import promoRouter from "./routes/promo.js";
 import { validateInitData } from "./middleware/validateInitData.js";
 import {
   getUser,
   getStats,
+  getHistory,
   PACKAGES,
   GENERATION_COST,
 } from "./services/users.js";
@@ -57,6 +59,10 @@ app.get("/api/me", validateInitData, (req, res) => {
   });
 });
 
+app.get("/api/history", validateInitData, (req, res) => {
+  res.json({ history: getHistory(req.telegramUser.id) });
+});
+
 app.get("/api/admin/stats", validateInitData, (req, res) => {
   if (!isAdmin(req.telegramUser.id)) {
     return res.status(403).json({ error: "forbidden" });
@@ -94,6 +100,7 @@ app.post("/api/admin/setup-webhook", validateInitData, async (req, res) => {
 app.use("/api/generate", generateRouter);
 app.use("/api/payment", paymentRouter);
 app.use("/api/webhook", webhookRouter);
+app.use("/api/promo", promoRouter);
 
 app.use(express.static(clientDist));
 app.get("*", (req, res, next) => {

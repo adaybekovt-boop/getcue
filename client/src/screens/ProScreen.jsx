@@ -1,38 +1,21 @@
 import { useState } from "react";
-import { IconStarFilled } from "@tabler/icons-react";
+import { useNavigate } from "react-router-dom";
+import {
+  IconArrowLeft,
+  IconStarFilled,
+  IconInfoCircle,
+} from "@tabler/icons-react";
 import WebApp from "@twa-dev/sdk";
 import { api } from "../api.js";
-import AppHeader from "../components/AppHeader.jsx";
-
-const PAYMENT_CONFIRM_ATTEMPTS = 8;
-const PAYMENT_CONFIRM_DELAY_MS = 1000;
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export default function ProScreen({ me, refreshMe }) {
+  const navigate = useNavigate();
   const [status, setStatus] = useState(null);
-  const [buying, setBuying] = useState(null); // packageId currently buying
+  const [buying, setBuying] = useState(null);
 
-  const credits = me ? me.credits : null;
   const isAdmin = !!(me && me.isAdmin);
+  const credits = me ? me.credits : null;
   const packages = (me && me.packages) || [];
-
-  async function waitForBalanceChange(previousCredits) {
-    for (let i = 0; i < PAYMENT_CONFIRM_ATTEMPTS; i += 1) {
-      await delay(PAYMENT_CONFIRM_DELAY_MS);
-      try {
-        const fresh = await refreshMe();
-        if (fresh && fresh.credits !== previousCredits) {
-          return true;
-        }
-      } catch {
-        // Telegram webhook delivery can lag; keep polling briefly.
-      }
-    }
-    return false;
-  }
 
   async function buy(pkg) {
     setStatus(null);
@@ -42,17 +25,11 @@ export default function ProScreen({ me, refreshMe }) {
         method: "POST",
         body: JSON.stringify({ packageId: pkg.id }),
       });
-
       if (WebApp && typeof WebApp.openInvoice === "function") {
-        WebApp.openInvoice(invoiceLink, async (state) => {
+        WebApp.openInvoice(invoiceLink, (state) => {
           if (state === "paid") {
-            setStatus("Confirming payment...");
-            const confirmed = await waitForBalanceChange(me?.credits);
-            setStatus(
-              confirmed
-                ? "Credits added!"
-                : "Payment received. Balance will update shortly."
-            );
+            refreshMe();
+            setStatus("Credits added!");
           } else if (state === "failed") {
             setStatus("Payment failed.");
           } else if (state === "cancelled") {
@@ -71,71 +48,85 @@ export default function ProScreen({ me, refreshMe }) {
   }
 
   return (
-    <div className="app pro">
-      <AppHeader me={me} />
-
-      <div className="rise" style={{ "--i": 1 }}>
+    <div className="screen">
+      <header className="pro-header">
+        <button
+          className="pro-back"
+          aria-label="Back"
+          onClick={() => navigate(-1)}
+        >
+          <IconArrowLeft size={20} stroke={2} />
+        </button>
         <h1 className="pro-title">Get Credits</h1>
-        <p className="subtitle">Credits never expire</p>
-      </div>
+        <span />
+      </header>
 
-      <div className="balance rise" style={{ "--i": 2 }}>
-        <span className="balance-label">Your balance</span>
-        <span className="balance-value">
-          {isAdmin ? "Admin" : (credits ?? "...").toLocaleString()}
-          {!isAdmin && <span style={{ fontSize: 16 }}> credits</span>}
-          {isAdmin && <span style={{ fontSize: 16 }}> account</span>}
-        </span>
-      </div>
-
-      <div className="pack-grid">
-        {packages.map((pkg, idx) => {
-          const rate = Math.round(pkg.credits / pkg.stars);
-          const best = pkg.id === "pack_200";
-          return (
-            <div
-              key={pkg.id}
-              className={"pack-card rise" + (best ? " pack-best" : "")}
-              style={{ "--i": 3 + idx }}
-            >
-              {best && <div className="best-badge">Best value</div>}
-              <div className="pack-stars">
-                {pkg.stars}
-                <IconStarFilled className="star-icon" size={16} />
-              </div>
-              {pkg.label && <div className="pack-label">{pkg.label}</div>}
-              <div className="pack-credits">
-                {pkg.credits.toLocaleString()} credits
-              </div>
-              <div className="pack-rate">{rate} cr / Star</div>
-              <button
-                className="btn-glass buy"
-                disabled={buying === pkg.id}
-                onClick={() => buy(pkg)}
-              >
-                {buying === pkg.id ? "..." : "Buy"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="cost-ref rise" style={{ "--i": 4 }}>
-        <div className="cost-ref-row">
-          <span>Standard prompt</span>
-          <span className="amount">50 credits</span>
+      <div className="screen-content">
+        <div className="balance-block">
+          <div className="balance-label">Your balance</div>
+          <div className="balance-value">
+            <IconStarFilled className="star" size={26} />
+            <span className="num">
+              {isAdmin ? "∞" : (credits ?? 0).toLocaleString()}
+            </span>
+            <span className="unit">credits</span>
+          </div>
         </div>
-        <div className="cost-ref-row">
-          <span>Reasoning prompt</span>
-          <span className="amount">100 credits</span>
+
+        <div className="pack-grid">
+          {packages.map((pkg) => {
+            const wide = pkg.id === "pack_200";
+            if (wide) {
+              return (
+                <div key={pkg.id} className="pack-card wide">
+                  <div className="pack-info">
+                    <span className="pack-stars">
+                      <IconStarFilled className="star" size={20} />
+                      {pkg.stars}
+                    </span>
+                    <span className="pack-credits">
+                      {pkg.credits.toLocaleString()} credits
+                    </span>
+                  </div>
+                  <button
+                    className="buy-btn"
+                    disabled={buying === pkg.id}
+                    onClick={() => buy(pkg)}
+                  >
+                    {buying === pkg.id ? "…" : "Buy"}
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <div key={pkg.id} className="pack-card">
+                <span className="pack-stars">
+                  <IconStarFilled className="star" size={18} />
+                  {pkg.stars}
+                </span>
+                <span className="pack-credits">
+                  {pkg.credits.toLocaleString()} credits
+                </span>
+                <span className="pack-price">{pkg.stars} Stars</span>
+                <button
+                  className="buy-btn"
+                  disabled={buying === pkg.id}
+                  onClick={() => buy(pkg)}
+                >
+                  {buying === pkg.id ? "…" : "Buy"}
+                </button>
+              </div>
+            );
+          })}
         </div>
+
+        <div className="pro-footer">
+          <IconInfoCircle size={13} stroke={1.8} />
+          1 credit = 1 request.
+        </div>
+
+        {status && <div className="pro-status">{status}</div>}
       </div>
-
-      <p className="free-note rise" style={{ "--i": 5 }}>
-        New users get 150 free credits to start
-      </p>
-
-      {status && <div className="status rise">{status}</div>}
     </div>
   );
 }

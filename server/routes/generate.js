@@ -3,7 +3,12 @@
 import { Router } from "express";
 import { validateInitData } from "../middleware/validateInitData.js";
 import { isAdmin } from "../services/admin.js";
-import { getUser, deductCredits, GENERATION_COST } from "../services/users.js";
+import {
+  getUser,
+  deductCredits,
+  recordUsage,
+  GENERATION_COST,
+} from "../services/users.js";
 import { strategyKeys } from "../../src/config/strategyCards.js";
 import { buildPrompt, callGemini } from "../../src/generate.js";
 import { fetchRepoSummary } from "../../src/github/fetchRepoSummary.js";
@@ -51,10 +56,15 @@ router.post("/", validateInitData, async (req, res) => {
     const prompt = buildPrompt(strategy, { id: "user", task }, summary);
     const result = await callGemini(prompt, strategy);
 
-    // 7. Deduct credits for the successful generation (admins are not metered).
-    const creditResult = admin
-      ? { ok: true, credits, spent: 0 }
-      : deductCredits(telegramId, strategy);
+    // 7. Deduct credits for the successful generation (admins are not metered,
+    //    but their generations are still recorded so History works for them).
+    let creditResult;
+    if (admin) {
+      recordUsage(telegramId, strategy, task, result, 0);
+      creditResult = { ok: true, credits, spent: 0 };
+    } else {
+      creditResult = deductCredits(telegramId, strategy, task, result);
+    }
     if (!creditResult.ok) {
       return res.status(402).json({
         error: "insufficient_credits",

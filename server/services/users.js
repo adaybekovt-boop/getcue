@@ -28,7 +28,10 @@ const spendCredits = db.prepare(
   "UPDATE users SET credits = credits - ?, updated_at = strftime('%s','now') WHERE telegram_id = ? AND credits >= ?"
 );
 const logUsage = db.prepare(
-  "INSERT INTO usage_log (telegram_id, strategy, credits_spent) VALUES (?, ?, ?)"
+  "INSERT INTO usage_log (telegram_id, strategy, credits_spent, task, prompt_text) VALUES (?, ?, ?, ?, ?)"
+);
+const selectHistory = db.prepare(
+  "SELECT id, strategy, task, prompt_text, credits_spent, created_at FROM usage_log WHERE telegram_id = ? ORDER BY created_at DESC, id DESC LIMIT 30"
 );
 const grantCredits = db.prepare(
   "UPDATE users SET credits = credits + ?, total_earned = total_earned + ?, updated_at = strftime('%s','now') WHERE telegram_id = ?"
@@ -63,7 +66,7 @@ export function getCredits(telegramId) {
   return getUser(telegramId).credits;
 }
 
-export function deductCredits(telegramId, strategy) {
+export function deductCredits(telegramId, strategy, task = null, promptText = null) {
   const id = Number(telegramId);
   const cost = GENERATION_COST[strategy] ?? DEFAULT_COST;
   return db.transaction(() => {
@@ -72,9 +75,20 @@ export function deductCredits(telegramId, strategy) {
     if (result.changes !== 1) {
       return { ok: false, credits: getCredits(id), required: cost };
     }
-    logUsage.run(id, strategy, cost);
+    logUsage.run(id, strategy, cost, task ?? null, promptText ?? null);
     return { ok: true, credits: getCredits(id), spent: cost };
   })();
+}
+
+// Record a usage entry without deducting (used for admins, who bypass billing
+// but should still see their generations in History).
+export function recordUsage(telegramId, strategy, task = null, promptText = null, creditsSpent = 0) {
+  logUsage.run(Number(telegramId), strategy, creditsSpent, task ?? null, promptText ?? null);
+}
+
+// Last 30 generations for a user, newest first.
+export function getHistory(telegramId) {
+  return selectHistory.all(Number(telegramId));
 }
 
 export function addCredits(telegramId, starsPaid, creditsToAdd, payload, paymentId) {
