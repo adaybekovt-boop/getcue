@@ -1,9 +1,15 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
-import { IconChevronRight, IconCheck, IconAlertCircle } from "@tabler/icons-react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  IconChevronRight,
+  IconCheck,
+  IconAlertCircle,
+  IconSparkles,
+} from "@tabler/icons-react";
 import { api } from "../api.js";
 
 export default function SettingsScreen({ me, refreshMe }) {
+  const navigate = useNavigate();
   const isAdmin = !!(me && me.isAdmin);
   const credits = me ? me.credits : null;
 
@@ -12,7 +18,9 @@ export default function SettingsScreen({ me, refreshMe }) {
   const [msg, setMsg] = useState("");
 
   async function applyPromo() {
-    const entered = code.trim().toUpperCase();
+    // Send the raw value (not upper-cased): promo codes are normalised on the
+    // server, but the admin-chat token is case-sensitive and must match exactly.
+    const entered = code.trim();
     if (!entered || state === "loading") return;
     setState("loading");
     setMsg("");
@@ -21,13 +29,20 @@ export default function SettingsScreen({ me, refreshMe }) {
         method: "POST",
         body: JSON.stringify({ code: entered }),
       });
+      if (data.adminChat) {
+        // Persistent unlock — refresh /api/me so the Admin item appears, then open.
+        if (refreshMe) refreshMe();
+        navigate("/admin-chat");
+        return;
+      }
       setState("success");
-      setMsg(`${entered} — +${data.credits} credits added!`);
+      setMsg(`${entered.toUpperCase()} — +${data.credits} credits added!`);
       setCode("");
       if (refreshMe) refreshMe();
     } catch (e) {
       setState("error");
       if (e.status === 409) setMsg("Already redeemed");
+      else if (e.status === 429) setMsg("Too many attempts. Try again shortly.");
       else if (e.status === 400) setMsg("Invalid promo code");
       else setMsg(e.message || "Something went wrong");
     }
@@ -37,18 +52,36 @@ export default function SettingsScreen({ me, refreshMe }) {
     <div className="screen">
       <h1 className="screen-title">Settings</h1>
       <div className="screen-content">
+        {me?.adminChatUnlocked && (
+          <>
+            <div className="settings-section-title">Admin</div>
+            <Link to="/admin-chat" className="admin-item">
+              <span className="ai-icon">
+                <IconSparkles size={20} stroke={1.8} />
+              </span>
+              <span className="ai-text">
+                <span className="ai-name">
+                  Chat with Kimi <span className="ai-badge">K2.6</span>
+                </span>
+                <span className="ai-sub">Direct AI chat · files &amp; images</span>
+              </span>
+              <IconChevronRight className="ai-chevron" size={16} stroke={2} />
+            </Link>
+          </>
+        )}
+
         <div className="settings-section-title">Promo Code</div>
         <div className="promo-row">
           <input
             className="promo-input"
             type="text"
             inputMode="text"
-            autoCapitalize="characters"
+            autoCapitalize="none"
             autoCorrect="off"
             spellCheck="false"
             placeholder="Enter promo code"
             value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            onChange={(e) => setCode(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") applyPromo();
             }}

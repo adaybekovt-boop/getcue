@@ -15,11 +15,12 @@ db.pragma("journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
-    telegram_id   INTEGER PRIMARY KEY,
-    credits       INTEGER NOT NULL DEFAULT 150,
-    total_earned  INTEGER NOT NULL DEFAULT 0,
-    created_at    INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-    updated_at    INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    telegram_id          INTEGER PRIMARY KEY,
+    credits              INTEGER NOT NULL DEFAULT 150,
+    total_earned         INTEGER NOT NULL DEFAULT 0,
+    admin_chat_unlocked  INTEGER NOT NULL DEFAULT 0,
+    created_at           INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+    updated_at           INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
 
   CREATE TABLE IF NOT EXISTS usage_log (
@@ -62,6 +63,12 @@ if (!usageColumns.some((column) => column.name === "task")) {
 }
 if (!usageColumns.some((column) => column.name === "prompt_text")) {
   db.exec("ALTER TABLE usage_log ADD COLUMN prompt_text TEXT");
+}
+
+// Persistent admin-chat unlock flag.
+const userColumns = db.prepare("PRAGMA table_info(users)").all();
+if (!userColumns.some((column) => column.name === "admin_chat_unlocked")) {
+  db.exec("ALTER TABLE users ADD COLUMN admin_chat_unlocked INTEGER NOT NULL DEFAULT 0");
 }
 
 db.exec(`

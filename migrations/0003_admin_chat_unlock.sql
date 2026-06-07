@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN admin_chat_unlocked INTEGER NOT NULL DEFAULT 0;

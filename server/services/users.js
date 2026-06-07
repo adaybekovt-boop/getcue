@@ -39,6 +39,15 @@ const grantCredits = db.prepare(
 const logPurchase = db.prepare(
   "INSERT OR IGNORE INTO purchase_log (payment_id, telegram_id, stars_paid, credits_added, payload) VALUES (?, ?, ?, ?, ?)"
 );
+const selectUnlock = db.prepare(
+  "SELECT admin_chat_unlocked FROM users WHERE telegram_id = ?"
+);
+const setUnlock = db.prepare(
+  "UPDATE users SET admin_chat_unlocked = 1, updated_at = strftime('%s','now') WHERE telegram_id = ?"
+);
+const selectPaidPurchase = db.prepare(
+  "SELECT 1 FROM purchase_log WHERE telegram_id = ? AND stars_paid > 0 LIMIT 1"
+);
 
 const countUsers = db.prepare("SELECT COUNT(*) AS c FROM users");
 const sumCredits = db.prepare(
@@ -66,9 +75,15 @@ export function getCredits(telegramId) {
   return getUser(telegramId).credits;
 }
 
-export function deductCredits(telegramId, strategy, task = null, promptText = null) {
+export function deductCredits(
+  telegramId,
+  strategy,
+  task = null,
+  promptText = null,
+  costOverride = null
+) {
   const id = Number(telegramId);
-  const cost = GENERATION_COST[strategy] ?? DEFAULT_COST;
+  const cost = costOverride ?? (GENERATION_COST[strategy] ?? DEFAULT_COST);
   return db.transaction(() => {
     getUser(id); // ensure the row exists
     const result = spendCredits.run(cost, id, cost);
@@ -89,6 +104,24 @@ export function recordUsage(telegramId, strategy, task = null, promptText = null
 // Last 30 generations for a user, newest first.
 export function getHistory(telegramId) {
   return selectHistory.all(Number(telegramId));
+}
+
+// Persistent admin-chat unlock. Set once after a successful two-factor unlock.
+export function setAdminChatUnlocked(telegramId) {
+  const id = Number(telegramId);
+  getUser(id); // ensure the row exists
+  setUnlock.run(id);
+}
+
+// Stored flag only. Callers MUST also re-check ADMIN_TELEGRAM_IDS live before
+// trusting this (a removed admin loses access even if the flag is still set).
+export function isAdminChatUnlocked(telegramId) {
+  const row = selectUnlock.get(Number(telegramId));
+  return !!(row && row.admin_chat_unlocked === 1);
+}
+
+export function hasPaidPurchase(telegramId) {
+  return !!selectPaidPurchase.get(Number(telegramId));
 }
 
 export function addCredits(telegramId, starsPaid, creditsToAdd, payload, paymentId) {

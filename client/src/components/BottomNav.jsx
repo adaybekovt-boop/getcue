@@ -1,8 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { IconSparkles, IconClockHour3, IconSettings2 } from "@tabler/icons-react";
+import {
+  IconPencil,
+  IconPhoto,
+  IconClockHour3,
+  IconSettings2,
+} from "@tabler/icons-react";
 
 const TABS = [
-  { to: "/", label: "Generate", Icon: IconSparkles },
+  { to: "/", label: "Text", Icon: IconPencil },
+  { to: "/image", label: "Image", Icon: IconPhoto },
   { to: "/history", label: "History", Icon: IconClockHour3 },
   { to: "/settings", label: "Settings", Icon: IconSettings2 },
 ];

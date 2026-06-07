@@ -1,6 +1,7 @@
 import { generatorPrompt } from "../src/config/generatorPrompt.js";
 import { repoSummary } from "../src/fixtures/repoSummary.js";
 import { strategyCards, strategyKeys } from "../src/config/strategyCards.js";
+import { IMAGE_STRATEGY_CARDS } from "../src/config/imageStrategyCards.js";
 
 const PACKAGES = [
   { id: "pack_10", stars: 10, credits: 1500, label: "Starter" },
@@ -24,10 +25,26 @@ const PROMO_CODES = {
 };
 
 const MAX_TASK_CHARS = 2000;
+const MAX_CODE_CHARS = 100;
+const IMAGE_PROMPT_COST = 100;
+const MAX_IMAGE_CHARS = 7_000_000;
+const ATT_MAX = 3;
+const ATT_MAX_BASE64 = 14_000_000;
 const DAY_SECONDS = 86400;
 const GEMINI_MODEL = "gemini-2.5-flash";
 const SILICONFLOW_MODEL = "Qwen/Qwen2.5-7B-Instruct";
 const SILICONFLOW_BASE_URL = "https://api.siliconflow.com/v1";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+const OPENROUTER_HEADERS = {
+  "HTTP-Referer": "https://getcue.app",
+  "X-Title": "Cue",
+};
+const GPTOSS_MODEL = "openai/gpt-oss-120b";
+const KIMI_MODEL = "moonshotai/kimi-k2.6";
+const GEMMA_MODEL = "google/gemma-4-31b-it:free";
+const QWEN_MODEL = "qwen-max";
+const QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+const PROMO_HITS = new Map();
 
 export default {
   async fetch(request, env) {
@@ -49,6 +66,9 @@ export default {
           telegramUser,
           credits: user.credits,
           isAdmin: isAdmin(env, telegramUser.id),
+          adminChatUnlocked:
+            isAdmin(env, telegramUser.id) &&
+            (await isAdminChatUnlocked(env.DB, telegramUser.id)),
           packages: PACKAGES,
           generationCost: GENERATION_COST,
         });
@@ -61,8 +81,27 @@ export default {
 
       if (url.pathname === "/api/promo/redeem" && request.method === "POST") {
         const telegramUser = await requireTelegramUser(request, env);
+        const limited = rateLimit(telegramUser.id);
+        if (limited) {
+          return json(
+            { error: "rate_limited", message: "Too many attempts. Try again shortly." },
+            429
+          );
+        }
         const body = await readJson(request);
-        const result = await redeemPromo(env.DB, telegramUser.id, body.code);
+        const code = String(body.code || "").trim();
+        if (!code) return json({ error: "no_code" }, 400);
+        if (code.length > MAX_CODE_CHARS) {
+          return json({ error: "invalid_code", message: "Invalid promo code" }, 400);
+        }
+        if (await matchesAdminToken(env, code)) {
+          if (!isAdmin(env, telegramUser.id)) {
+            return json({ error: "invalid_code", message: "Invalid promo code" }, 400);
+          }
+          await setAdminChatUnlocked(env.DB, telegramUser.id);
+          return json({ adminChat: true });
+        }
+        const result = await redeemPromo(env.DB, telegramUser.id, code);
         if (result.error === "invalid_code") {
           return json({ error: "invalid_code", message: "Promo code not found" }, 400);
         }
@@ -93,11 +132,19 @@ export default {
       }
 
       if (url.pathname === "/api/generate" && request.method === "POST") {
-        return handleGenerate(request, env);
+        return await handleGenerate(request, env);
+      }
+
+      if (url.pathname === "/api/generate-image-prompt" && request.method === "POST") {
+        return await handleGenerateImagePrompt(request, env);
+      }
+
+      if (url.pathname === "/api/admin/chat" && request.method === "POST") {
+        return await handleAdminChat(request, env);
       }
 
       if (url.pathname === "/api/webhook/telegram" && request.method === "POST") {
-        return handleTelegramWebhook(request, env);
+        return await handleTelegramWebhook(request, env);
       }
 
       if (
@@ -144,7 +191,12 @@ async function handleGenerate(request, env) {
   try {
     const summary = repoUrl ? await fetchRepoSummary(env, repoUrl) : repoSummary;
     const prompt = buildPrompt(strategy, { id: "user", task }, summary);
-    result = await generateText(env, prompt);
+    const tier = admin
+      ? "admin"
+      : (await hasPaidPurchase(env.DB, telegramUser.id))
+      ? "paid"
+      : "free";
+    result = await generateText(env, prompt, tier);
   } catch (error) {
     console.error("[Generate] failed:", error);
     return json({ error: "generation_failed" }, 500);
@@ -170,6 +222,154 @@ async function handleGenerate(request, env) {
     spent: creditResult.spent,
     isAdmin: admin,
   });
+}
+
+async function handleGenerateImagePrompt(request, env) {
+  const telegramUser = await requireTelegramUser(request, env);
+  const admin = isAdmin(env, telegramUser.id);
+  const body = await readJson(request);
+  const { imageBase64, targetModel, task } = body;
+
+  if (typeof imageBase64 !== "string" || !imageBase64.startsWith("data:image/")) {
+    return json({ error: "invalid_image" }, 400);
+  }
+  if (imageBase64.length > MAX_IMAGE_CHARS) {
+    return json({ error: "image_too_large" }, 400);
+  }
+  if (!targetModel || !IMAGE_STRATEGY_CARDS[targetModel]) {
+    return json({ error: "invalid_target" }, 400);
+  }
+  if (typeof task !== "string" || !task.trim() || task.length > MAX_TASK_CHARS) {
+    return json({ error: "invalid_task" }, 400);
+  }
+
+  const user = await getUser(env.DB, telegramUser.id);
+  if (!admin && user.credits < IMAGE_PROMPT_COST) {
+    return json(
+      { error: "insufficient_credits", credits: user.credits, required: IMAGE_PROMPT_COST },
+      402
+    );
+  }
+
+  let prompt;
+  try {
+    prompt = await generateImagePrompt(env, imageBase64, targetModel, task.trim());
+  } catch (error) {
+    console.error("[ImagePrompt] failed:", error);
+    return json({ error: "generation_failed" }, 500);
+  }
+
+  const creditResult = admin
+    ? await recordUsage(env.DB, telegramUser.id, targetModel, task.trim(), prompt, 0)
+    : await deductCredits(env.DB, telegramUser.id, targetModel, task.trim(), prompt, IMAGE_PROMPT_COST);
+  if (!creditResult.ok) {
+    return json(
+      {
+        error: "insufficient_credits",
+        credits: creditResult.credits,
+        required: creditResult.required,
+      },
+      402
+    );
+  }
+
+  return json({
+    prompt,
+    creditsLeft: creditResult.credits,
+    spent: creditResult.spent,
+    isAdmin: admin,
+  });
+}
+
+async function handleAdminChat(request, env) {
+  const telegramUser = await requireTelegramUser(request, env);
+  if (!isAdmin(env, telegramUser.id) || !(await isAdminChatUnlocked(env.DB, telegramUser.id))) {
+    return json({ error: "forbidden" }, 403);
+  }
+
+  const { messages, attachments } = await readJson(request);
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > 40) {
+    return json({ error: "invalid_messages" }, 400);
+  }
+
+  const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+  for (let i = 0; i < messages.length; i++) {
+    const item = messages[i];
+    const isLast = i === messages.length - 1;
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return json({ error: "invalid_messages" }, 400);
+    }
+    if (item.role !== "user" && item.role !== "assistant") {
+      return json({ error: "invalid_messages" }, 400);
+    }
+    if (typeof item.content !== "string" || item.content.length > 8000) {
+      return json({ error: "invalid_messages" }, 400);
+    }
+    if (!item.content.length && !(isLast && hasAttachments)) {
+      return json({ error: "invalid_messages" }, 400);
+    }
+  }
+
+  const blocks = [];
+  if (attachments !== undefined) {
+    if (!Array.isArray(attachments) || attachments.length > ATT_MAX) {
+      return json({ error: "invalid_attachments" }, 400);
+    }
+    for (const item of attachments) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return json({ error: "invalid_attachments" }, 400);
+      }
+      if (item.type !== "image" && item.type !== "file") {
+        return json({ error: "invalid_attachments" }, 400);
+      }
+      if (typeof item.base64 !== "string" || !item.base64) {
+        return json({ error: "invalid_attachments" }, 400);
+      }
+      if (item.base64.length > ATT_MAX_BASE64) {
+        return json({ error: "attachment_too_large" }, 400);
+      }
+      if (item.type === "image") {
+        blocks.push({
+          type: "image_url",
+          image_url: {
+            url: item.base64.startsWith("data:")
+              ? item.base64
+              : `data:${item.mime || "image/jpeg"};base64,${item.base64}`,
+          },
+        });
+      } else {
+        blocks.push({
+          type: "text",
+          text: `Attached file "${item.name || "file"}":\n\n${decodeTextAttachment(item)}`,
+        });
+      }
+    }
+  }
+
+  try {
+    const outgoing = messages.map((item) => ({ role: item.role, content: item.content }));
+    if (blocks.length) {
+      const last = outgoing[outgoing.length - 1];
+      outgoing[outgoing.length - 1] = {
+        role: last.role,
+        content: [
+          {
+            type: "text",
+            text:
+              (last.content || "").trim() ||
+              "Please respond to the attached image(s) and file(s).",
+          },
+          ...blocks,
+        ],
+      };
+    }
+    const reply = await openAiChat(env, "kimi", KIMI_MODEL, outgoing, { maxTokens: 4096 });
+    if (!reply) throw new Error("Kimi unavailable");
+    return json({ reply });
+  } catch (error) {
+    console.error("[AdminChat] failed:", error);
+    return json({ error: "chat_failed" }, 502);
+  }
 }
 
 async function handleTelegramWebhook(request, env) {
@@ -270,17 +470,30 @@ async function requireTelegramUser(request, env) {
 async function getUser(db, telegramId) {
   const id = Number(telegramId);
   const row = await db
-    .prepare("SELECT credits, total_earned FROM users WHERE telegram_id = ?")
+    .prepare("SELECT credits, total_earned, admin_chat_unlocked FROM users WHERE telegram_id = ?")
     .bind(id)
     .first();
-  if (row) return { credits: row.credits, totalEarned: row.total_earned };
+  if (row) {
+    return {
+      credits: row.credits,
+      totalEarned: row.total_earned,
+      adminChatUnlocked: row.admin_chat_unlocked === 1,
+    };
+  }
   await db.prepare("INSERT INTO users (telegram_id) VALUES (?)").bind(id).run();
-  return { credits: 150, totalEarned: 0 };
+  return { credits: 150, totalEarned: 0, adminChatUnlocked: false };
 }
 
-async function deductCredits(db, telegramId, strategy, task = null, promptText = null) {
+async function deductCredits(
+  db,
+  telegramId,
+  strategy,
+  task = null,
+  promptText = null,
+  costOverride = null
+) {
   const id = Number(telegramId);
-  const cost = GENERATION_COST[strategy] ?? 50;
+  const cost = costOverride ?? (GENERATION_COST[strategy] ?? 50);
   await getUser(db, id);
   const result = await db
     .prepare(
@@ -300,6 +513,28 @@ async function deductCredits(db, telegramId, strategy, task = null, promptText =
     .run();
   const user = await getUser(db, id);
   return { ok: true, credits: user.credits, spent: cost };
+}
+
+async function isAdminChatUnlocked(db, telegramId) {
+  const user = await getUser(db, telegramId);
+  return user.adminChatUnlocked === true;
+}
+
+async function setAdminChatUnlocked(db, telegramId) {
+  const id = Number(telegramId);
+  await getUser(db, id);
+  await db
+    .prepare("UPDATE users SET admin_chat_unlocked = 1, updated_at = unixepoch() WHERE telegram_id = ?")
+    .bind(id)
+    .run();
+}
+
+async function hasPaidPurchase(db, telegramId) {
+  const row = await db
+    .prepare("SELECT 1 AS paid FROM purchase_log WHERE telegram_id = ? AND stars_paid > 0 LIMIT 1")
+    .bind(Number(telegramId))
+    .first();
+  return !!row;
 }
 
 async function recordUsage(db, telegramId, strategy, task = null, promptText = null, creditsSpent = 0) {
@@ -461,58 +696,141 @@ async function callTelegram(env, method, body) {
   return data.result;
 }
 
-async function generateText(env, prompt) {
+async function generateText(env, prompt, tier = "free") {
+  const order =
+    tier === "admin"
+      ? ["kimi", "gptoss", "gemini", "siliconflow", "qwen"]
+      : tier === "paid"
+      ? ["gptoss", "gemini", "siliconflow", "qwen"]
+      : ["gemini", "siliconflow", "qwen"];
+
+  for (const provider of order) {
+    try {
+      if (provider === "gemini") {
+        const text = await geminiGenerate(env, prompt);
+        if (text) return text;
+      } else if (provider === "siliconflow") {
+        const text = await openAiChat(env, provider, SILICONFLOW_MODEL, [
+          { role: "user", content: prompt },
+        ]);
+        if (text) return text;
+      } else if (provider === "qwen") {
+        const text = await openAiChat(env, provider, QWEN_MODEL, [{ role: "user", content: prompt }]);
+        if (text) return text;
+      } else if (provider === "gptoss") {
+        const text = await openAiChat(env, provider, GPTOSS_MODEL, [
+          { role: "user", content: prompt },
+        ]);
+        if (text) return text;
+      } else if (provider === "kimi") {
+        const text = await openAiChat(env, provider, KIMI_MODEL, [{ role: "user", content: prompt }]);
+        if (text) return text;
+      }
+    } catch (error) {
+      console.warn(`[${provider}] provider failed:`, error.message);
+    }
+  }
+
+  throw new Error(`No generation provider returned a response for tier=${tier}`);
+}
+
+async function geminiGenerate(env, prompt) {
   const geminiKeys = parseKeys(env.GEMINI_API_KEYS || env.GEMINI_API_KEY);
   for (const key of geminiKeys) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.5 },
-          }),
-        }
-      );
-      if (response.status === 429) continue;
-      if (!response.ok) throw new Error(`Gemini failed: ${response.status}`);
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("");
-      if (text?.trim()) return text.trim();
-    } catch (error) {
-      console.warn("[Gemini] key failed:", error.message);
-    }
-  }
-
-  const siliconKeys = parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN);
-  for (const key of siliconKeys) {
-    try {
-      const response = await fetch(`${SILICONFLOW_BASE_URL}/chat/completions`, {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`,
+      {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: SILICONFLOW_MODEL,
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.5,
-          max_tokens: 2000,
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.5 },
         }),
-      });
-      if (response.status === 429) continue;
-      if (!response.ok) throw new Error(`SiliconFlow failed: ${response.status}`);
-      const data = await response.json();
-      const text = data.choices?.[0]?.message?.content;
-      if (text?.trim()) return text.trim();
-    } catch (error) {
-      console.warn("[SiliconFlow] key failed:", error.message);
-    }
+      }
+    );
+    if (response.status === 429) continue;
+    if (!response.ok) throw new Error(`Gemini failed: ${response.status}`);
+    const data = await response.json();
+    const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join("");
+    if (text?.trim()) return text.trim();
   }
+  return null;
+}
 
-  throw new Error("No generation provider returned a response");
+async function openAiChat(env, provider, model, messages, options = {}) {
+  const keys = providerKeys(env, provider);
+  for (const key of keys) {
+    const baseUrl =
+      provider === "siliconflow"
+        ? SILICONFLOW_BASE_URL
+        : provider === "qwen"
+        ? QWEN_BASE_URL
+        : OPENROUTER_BASE_URL;
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    };
+    if (baseUrl === OPENROUTER_BASE_URL) Object.assign(headers, OPENROUTER_HEADERS);
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: options.temperature ?? 0.5,
+        max_tokens: options.maxTokens ?? 2000,
+      }),
+    });
+    if (response.status === 429) continue;
+    if (!response.ok) throw new Error(`${provider} failed: ${response.status}`);
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (text?.trim()) return text.trim();
+  }
+  return null;
+}
+
+async function generateImagePrompt(env, imageBase64, targetModel, task) {
+  const systemPrompt = `You are an expert image-generation prompt engineer.
+
+The user has uploaded an image. They may have drawn ORANGE annotation marks
+(circles, arrows, lines) directly on it to highlight areas they want changed
+or emphasized. Pay close attention to anything marked in orange - those regions
+are the focus of their request.
+
+User's task: ${task}
+
+Generate a single optimized prompt for the target image-generation model below,
+following its specific syntax and rules exactly. Output ONLY the final prompt,
+ready to paste - no explanations, no preamble.
+
+=== TARGET MODEL RULES ===
+${IMAGE_STRATEGY_CARDS[targetModel]}`;
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: systemPrompt },
+        { type: "image_url", image_url: { url: imageBase64 } },
+      ],
+    },
+  ];
+  const text = await openAiChat(env, "gemma", GEMMA_MODEL, messages, {
+    maxTokens: 1500,
+    temperature: 0.2,
+  });
+  if (!text) throw new Error("Gemma vision unavailable");
+  return text;
+}
+
+function providerKeys(env, provider) {
+  if (provider === "siliconflow") return parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN);
+  if (provider === "qwen") return parseKeys(env.QWEN_API_KEYS || env.QWEN_API_KEY);
+  if (provider === "gptoss") return parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY);
+  if (provider === "kimi") return parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY);
+  if (provider === "gemma") return parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY || env.OPENROUTER_API_KEY);
+  return [];
 }
 
 async function fetchRepoSummary(env, repoUrl) {
@@ -563,6 +881,55 @@ function isAdmin(env, telegramId) {
     .map((id) => id.trim())
     .filter(Boolean)
     .includes(String(telegramId));
+}
+
+function rateLimit(telegramId) {
+  const now = Date.now();
+  const key = String(telegramId);
+  const recent = (PROMO_HITS.get(key) || []).filter((time) => now - time < 60_000);
+  if (recent.length >= 10) {
+    PROMO_HITS.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  PROMO_HITS.set(key, recent);
+  return false;
+}
+
+async function matchesAdminToken(env, code) {
+  const token = String(env.ADMIN_CHAT_TOKEN || "");
+  if (!token) return false;
+  return safeEqual(String(code || "").trim(), token);
+}
+
+async function safeEqual(a, b) {
+  const enc = new TextEncoder();
+  const left = enc.encode(String(a || ""));
+  const right = enc.encode(String(b || ""));
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
+  return diff === 0;
+}
+
+function decodeTextAttachment(item) {
+  const name = item.name || "file";
+  const raw = String(item.base64 || "");
+  const payload = raw.includes(",") ? raw.slice(raw.indexOf(",") + 1) : raw;
+  const mime = String(item.mime || "").toLowerCase();
+  if (
+    mime.includes("pdf") ||
+    mime.includes("word") ||
+    /\.(pdf|docx)$/i.test(name)
+  ) {
+    return "[Binary document attached. Cloudflare Worker production cannot extract this file type yet; ask the user to paste the text or attach a text/markdown/code file.]";
+  }
+  try {
+    const text = atob(payload);
+    return text.slice(0, 30_000);
+  } catch {
+    return "[Attachment could not be decoded as text.]";
+  }
 }
 
 function parseKeys(value) {

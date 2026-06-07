@@ -1,17 +1,46 @@
-// Multi-provider API key manager (Gemini + SiliconFlow). Rotates automatically
-// on 429 errors and falls back from Gemini to SiliconFlow when all Gemini keys
-// are out. (Filename kept as keyManager.js for import compatibility.)
+// Multi-provider API key manager. Maintains an ordered fallback chain and
+// rotates keys out on rate-limit / transient errors.
+// (Filename kept as keyManager.js for import compatibility.)
 //
-// Key provider is inferred by prefix:
-//   "AIza..." -> gemini      "sk-..." -> siliconflow
+// Fallback order: free users -> gemini/siliconflow/qwen, paid users -> gptoss
+// first, admins -> kimi first. Gemma is reserved for image-understanding flows.
+// Each provider loads keys from its own env var(s). The three OpenRouter
+// providers (gptoss/kimi/gemma) are model-specific rotating pools. Keys are
+// validated by prefix where the format is known; `exclude` stops one provider's
+// prefix from swallowing another's (SiliconFlow "sk-" must NOT match "sk-or-").
 //
 // Per-key state (in-memory, module-level):
-//   rpmCooldownUntil — timestamp; key is in per-minute cooldown until then
-//   dailyExhausted   — key has hit the per-day quota
+//   rpmCooldownUntil — timestamp; key is in short cooldown until then
+//   dailyExhausted   — key has hit a per-day quota
 
 const RPM_COOLDOWN_MS = 65_000; // 65 seconds
 
-let _pools = null; // { gemini: [...], siliconflow: [...] }
+// Default order for the public free-trial path.
+const PROVIDERS = [
+  { name: "gemini", multi: "GEMINI_API_KEYS", single: "GEMINI_API_KEY", prefix: "AIza" },
+  {
+    name: "siliconflow",
+    multi: "SILICONFLOW_API_KEYS",
+    single: "SILICONFLOW_API_TOKEN",
+    prefix: "sk-",
+    exclude: ["sk-or-"],
+  },
+  // OpenRouter model-specific rotating pools (all keys are sk-or-...).
+  { name: "gptoss", multi: "OPENROUTER_GPTOSS_KEYS", single: "OPENROUTER_GPTOSS_KEY", prefix: "sk-or-" },
+  { name: "kimi", multi: "OPENROUTER_KIMI_KEYS", single: "OPENROUTER_KIMI_KEY", prefix: "sk-or-" },
+  { name: "gemma", multi: "OPENROUTER_GEMMA_KEYS", single: "OPENROUTER_GEMMA_KEY", prefix: "sk-or-" },
+  { name: "qwen", multi: "QWEN_API_KEYS", single: "QWEN_API_KEY" },
+];
+
+const PROVIDER_BY_NAME = Object.fromEntries(PROVIDERS.map((provider) => [provider.name, provider]));
+const PROVIDER_ORDERS = {
+  free: ["gemini", "siliconflow", "qwen"],
+  paid: ["gptoss", "gemini", "siliconflow", "qwen"],
+  admin: ["kimi", "gptoss", "gemini", "siliconflow", "qwen"],
+  all: ["gemini", "siliconflow", "gptoss", "kimi", "gemma", "qwen"],
+};
+
+let _pools = null; // { gemini: [...], siliconflow: [...], ... }
 
 function parseList(multiVar, singleVar) {
   const multi = process.env[multiVar];
@@ -27,46 +56,41 @@ function parseList(multiVar, singleVar) {
   return [];
 }
 
-function filterByPrefix(raw, prefix, providerName) {
+function validate(raw, { name, prefix, exclude = [] }) {
   const ok = [];
   for (const k of raw) {
-    if (k.startsWith(prefix)) ok.push(k);
-    else
+    if (exclude.some((x) => k.startsWith(x))) continue; // belongs to another provider
+    if (prefix && !k.startsWith(prefix)) {
       console.warn(
-        `[KeyManager] Skipping ${providerName} key (expected "${prefix}" prefix): ...${k.slice(
-          -6
-        )}`
+        `[KeyManager] Skipping ${name} key (expected "${prefix}" prefix): ...${k.slice(-6)}`
       );
+      continue;
+    }
+    ok.push(k);
   }
   return ok;
 }
 
-function loadKeys() {
-  const gemini = filterByPrefix(
-    parseList("GEMINI_API_KEYS", "GEMINI_API_KEY"),
-    "AIza",
-    "Gemini"
-  );
-  const siliconflow = filterByPrefix(
-    parseList("SILICONFLOW_API_KEYS", "SILICONFLOW_API_TOKEN"),
-    "sk-",
-    "SiliconFlow"
-  );
-
-  if (gemini.length === 0 && siliconflow.length === 0) {
+function loadPools() {
+  const pools = {};
+  let total = 0;
+  for (const p of PROVIDERS) {
+    const keys = validate(parseList(p.multi, p.single), p);
+    pools[p.name] = keys.map((key) => ({ key, rpmCooldownUntil: 0, dailyExhausted: false }));
+    total += keys.length;
+  }
+  if (total === 0) {
     throw new Error(
-      "No valid API keys found. Set GEMINI_API_KEYS / GEMINI_API_KEY (AIza...) " +
-        "or SILICONFLOW_API_KEYS / SILICONFLOW_API_TOKEN (sk-...) in .env."
+      "No valid API keys found. Set at least one of: GEMINI_API_KEYS (AIza...), " +
+        "SILICONFLOW_API_KEYS (sk-...), OPENROUTER_GPTOSS_KEYS / OPENROUTER_KIMI_KEYS / " +
+        "OPENROUTER_GEMMA_KEYS (sk-or-...), or QWEN_API_KEY in .env."
     );
   }
-  return { gemini, siliconflow };
+  return pools;
 }
 
 function getPools() {
-  if (_pools) return _pools;
-  const { gemini, siliconflow } = loadKeys();
-  const mk = (key) => ({ key, rpmCooldownUntil: 0, dailyExhausted: false });
-  _pools = { gemini: gemini.map(mk), siliconflow: siliconflow.map(mk) };
+  if (!_pools) _pools = loadPools();
   return _pools;
 }
 
@@ -75,52 +99,66 @@ function firstAvailable(pool, now) {
 }
 
 /**
- * Returns { key, provider } for the first usable key, trying Gemini first and
- * falling back to SiliconFlow. Throws a descriptive error if neither has
- * capacity.
+ * Returns { key, provider } for the first usable key, walking the fallback
+ * chain in priority order. Throws a descriptive error if nothing is available.
  */
 export function getActiveKey() {
+  return getActiveKeyForTier("free");
+}
+
+export function getActiveKeyForTier(tier = "free") {
   const pools = getPools();
   const now = Date.now();
-
-  const g = firstAvailable(pools.gemini, now);
-  if (g) return { key: g.key, provider: "gemini" };
-
-  const s = firstAvailable(pools.siliconflow, now);
-  if (s) return { key: s.key, provider: "siliconflow" };
-
+  const order = PROVIDER_ORDERS[tier] || PROVIDER_ORDERS.free;
+  for (const name of order) {
+    const entry = firstAvailable(pools[name] || [], now);
+    if (entry) return { key: entry.key, provider: name };
+  }
   throw new Error(
-    "No API keys available — all providers are rate-limited or exhausted.\n" +
+    `No ${tier} API keys available — configured providers are rate-limited or exhausted.\n` +
       getPoolStatus()
   );
 }
 
 /**
- * Records a 429 against a key for the given provider, deciding per-minute vs
- * per-day from the error message, and rotates the key out accordingly.
+ * Returns { key, provider } for the first usable key in ONE specific provider's
+ * pool (no chain fallback). Used by features pinned to a single model (e.g. the
+ * admin chat → kimi pool). Throws when that pool has no capacity.
+ */
+export function getActiveKeyForProvider(provider) {
+  const pools = getPools();
+  const entry = firstAvailable(pools[provider] || [], Date.now());
+  if (!PROVIDER_BY_NAME[provider]) throw new Error(`Unknown provider: ${provider}`);
+  if (entry) return { key: entry.key, provider };
+  throw new Error(`No ${provider} keys available — pool exhausted.`);
+}
+
+/**
+ * Sidelines a key after a failure. Per-day quota marks it exhausted; everything
+ * else (per-minute limit, transient 5xx, auth/availability errors) gets a short
+ * cooldown so the chain can rotate to the next provider.
  */
 export function reportError(key, provider, error) {
   const pools = getPools();
-  const pool = pools[provider] || [];
-  const entry = pool.find((k) => k.key === key);
-  const msg =
-    typeof error === "string" ? error : (error && error.message) || String(error);
+  const entry = (pools[provider] || []).find((k) => k.key === key);
+  const msg = typeof error === "string" ? error : (error && error.message) || String(error);
+  const status =
+    error && typeof error === "object" ? error.status || error.response?.status : null;
 
   let type;
-  if (/PerMinute|rpm/i.test(msg)) {
-    type = "RPM";
-    if (entry) entry.rpmCooldownUntil = Date.now() + RPM_COOLDOWN_MS;
-  } else if (/PerDay|daily/i.test(msg)) {
-    type = "daily";
+  if (/PerDay|per day|daily|quota.*day/i.test(msg)) {
+    type = "daily quota";
     if (entry) entry.dailyExhausted = true;
+  } else if (/PerMinute|per minute|\brpm\b/i.test(msg)) {
+    type = "per-minute limit";
+    if (entry) entry.rpmCooldownUntil = Date.now() + RPM_COOLDOWN_MS;
   } else {
-    // Unknown 429 — treat as RPM cooldown (safe default).
-    type = "RPM (unknown 429)";
+    type = status ? `HTTP ${status}` : "transient error";
     if (entry) entry.rpmCooldownUntil = Date.now() + RPM_COOLDOWN_MS;
   }
 
   console.warn(
-    `[KeyManager] ${provider} key ...${key.slice(-6)} hit ${type} limit. Rotating.`
+    `[KeyManager] ${provider} key ...${key.slice(-6)} sidelined (${type}). Rotating.`
   );
 }
 
@@ -137,15 +175,18 @@ function poolCounts(pool, now) {
 }
 
 /**
- * One-line status across both pools.
+ * One-line status across all configured pools (providers with zero keys are
+ * omitted to keep the line readable).
  */
 export function getPoolStatus() {
   const pools = getPools();
   const now = Date.now();
-  const g = poolCounts(pools.gemini, now);
-  const s = poolCounts(pools.siliconflow, now);
-  return (
-    `Gemini: ${g.active} active, ${g.rpm} rpm, ${g.daily} daily | ` +
-    `SiliconFlow: ${s.active} active, ${s.rpm} rpm, ${s.daily} daily`
-  );
+  const parts = [];
+  for (const p of PROVIDERS) {
+    const pool = pools[p.name] || [];
+    if (pool.length === 0) continue;
+    const c = poolCounts(pool, now);
+    parts.push(`${p.name}: ${c.active} active, ${c.rpm} rpm, ${c.daily} daily`);
+  }
+  return parts.join(" | ") || "no keys configured";
 }

@@ -5,6 +5,7 @@ import { validateInitData } from "../middleware/validateInitData.js";
 import { isAdmin } from "../services/admin.js";
 import {
   getUser,
+  hasPaidPurchase,
   deductCredits,
   recordUsage,
   GENERATION_COST,
@@ -52,9 +53,10 @@ router.post("/", validateInitData, async (req, res) => {
     const summary = hasRepo ? await fetchRepoSummary(repoUrl) : repoSummary;
 
     // 6. Build the engineered prompt with the user's task + chosen summary,
-    //    then generate via the rotating-key Gemini client.
+    //    then generate via the tier-aware rotating provider pool.
     const prompt = buildPrompt(strategy, { id: "user", task }, summary);
-    const result = await callGemini(prompt, strategy);
+    const tier = admin ? "admin" : hasPaidPurchase(telegramId) ? "paid" : "free";
+    const result = await callGemini(prompt, strategy, { tier });
 
     // 7. Deduct credits for the successful generation (admins are not metered,
     //    but their generations are still recorded so History works for them).

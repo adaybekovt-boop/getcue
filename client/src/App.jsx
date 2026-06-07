@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { api } from "./api.js";
 import GenerateScreen from "./screens/GenerateScreen.jsx";
+import ImagePromptScreen from "./screens/ImagePromptScreen.jsx";
 import HistoryScreen from "./screens/HistoryScreen.jsx";
 import SettingsScreen from "./screens/SettingsScreen.jsx";
+import AdminChatScreen from "./screens/AdminChatScreen.jsx";
 import ProScreen from "./screens/ProScreen.jsx";
 import BottomNav from "./components/BottomNav.jsx";
 import AuroraBackground from "./components/AuroraBackground.jsx";
@@ -50,6 +52,10 @@ export default function App() {
   const addLocalHistory = (entry) =>
     setHistory((prev) => [entry, ...(prev || [])]);
 
+  // The admin chat is a focused full-height screen — hide the bottom nav there.
+  const { pathname } = useLocation();
+  const hideNav = pathname === "/admin-chat";
+
   return (
     <>
       <div className="app-shell">
@@ -66,6 +72,10 @@ export default function App() {
               }
             />
             <Route
+              path="/image"
+              element={<ImagePromptScreen me={me} setCredits={setCredits} />}
+            />
+            <Route
               path="/history"
               element={<HistoryScreen history={history} setHistory={setHistory} />}
             />
@@ -79,9 +89,10 @@ export default function App() {
                 <ProScreen me={me} setCredits={setCredits} refreshMe={refreshMe} />
               }
             />
+            <Route path="/admin-chat" element={<AdminChatScreen me={me} />} />
           </Routes>
         </div>
-        <BottomNav />
+        {!hideNav && <BottomNav />}
       </div>
 
       <AuroraBackground />
