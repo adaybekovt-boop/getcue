@@ -1,0 +1,30 @@
+{
+  "name": "cue-generation-core",
+  "version": "0.1.0",
+  "description": "Cue Telegram Mini App for generating model-specific engineering prompts with credits and Telegram Stars payments.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adaybekovt-boop/getcue.git"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "test:cli": "node src/runTests.js",
+    "test:payments": "node scripts/paymentSmoke.mjs",
+    "client:build": "npm --prefix client run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.2",
+    "openai": "^6.42.0"
+  }
+}

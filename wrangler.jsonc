@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "getcue",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-06-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "4779193285f4b7225a52cfb160958347",
+  "assets": {
+    "directory": "./client/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "getcue",
+      "database_id": "0c8af186-3982-4a2a-b456-087ebd99ae68",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "vars": {
+    "NODE_ENV": "production"
+  }
+}
