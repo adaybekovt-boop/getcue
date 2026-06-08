@@ -7,13 +7,16 @@
 import { Router } from "express";
 import { validateInitData } from "../middleware/validateInitData.js";
 import { isAdmin } from "../services/admin.js";
+import { isAdminPanelUnlocked } from "../services/users.js";
 import { getKeyLimits, getOpenRouterModels, testModels } from "../utils/adminHelpers.js";
 
 const router = Router();
 
-// Admin gate applied after initData verification.
+// Admin gate applied after initData verification: must be a live admin AND have
+// activated the panel once with the panel token.
 router.use(validateInitData, (req, res, next) => {
-  if (!isAdmin(req.telegramUser.id)) {
+  const id = req.telegramUser.id;
+  if (!isAdmin(id) || !isAdminPanelUnlocked(id)) {
     return res.status(403).json({ error: "forbidden" });
   }
   next();

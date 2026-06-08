@@ -79,7 +79,9 @@ export default function Admin({ me }) {
       </div>
     );
   }
-  if (!me.isAdmin) return <Navigate to="/" replace />;
+  // Gated by the persistent panel unlock (which /api/me already re-checks against
+  // live admin status), so a non-admin or not-yet-activated user is sent home.
+  if (!me.adminPanelUnlocked) return <Navigate to="/" replace />;
 
   return (
     <div className="screen admin-panel">

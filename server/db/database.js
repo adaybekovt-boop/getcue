@@ -71,6 +71,11 @@ if (!userColumns.some((column) => column.name === "admin_chat_unlocked")) {
   db.exec("ALTER TABLE users ADD COLUMN admin_chat_unlocked INTEGER NOT NULL DEFAULT 0");
 }
 
+// Persistent admin-panel unlock flag (activated once via the panel token).
+if (!userColumns.some((column) => column.name === "admin_panel_unlocked")) {
+  db.exec("ALTER TABLE users ADD COLUMN admin_panel_unlocked INTEGER NOT NULL DEFAULT 0");
+}
+
 // Admin multi-chat (chats + messages). One-time switch from any earlier schema:
 // if the new admin_chats table is absent, (re)create the pair fresh.
 const hasAdminChats = db

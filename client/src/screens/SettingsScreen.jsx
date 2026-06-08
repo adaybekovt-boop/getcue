@@ -5,6 +5,7 @@ import {
   IconCheck,
   IconAlertCircle,
   IconSparkles,
+  IconGauge,
 } from "@tabler/icons-react";
 import { api } from "../api.js";
 
@@ -35,6 +36,12 @@ export default function SettingsScreen({ me, refreshMe }) {
         navigate("/admin-chat");
         return;
       }
+      if (data.adminPanel) {
+        // Persistent unlock for the monitoring panel — refresh then open it.
+        if (refreshMe) refreshMe();
+        navigate("/admin");
+        return;
+      }
       setState("success");
       setMsg(`${entered.toUpperCase()} — +${data.credits} credits added!`);
       setCode("");
@@ -52,21 +59,37 @@ export default function SettingsScreen({ me, refreshMe }) {
     <div className="screen">
       <h1 className="screen-title">Settings</h1>
       <div className="screen-content">
-        {me?.adminChatUnlocked && (
+        {(me?.adminChatUnlocked || me?.adminPanelUnlocked) && (
           <>
             <div className="settings-section-title">Admin</div>
-            <Link to="/admin-chat" className="admin-item">
-              <span className="ai-icon">
-                <IconSparkles size={20} stroke={1.8} />
-              </span>
-              <span className="ai-text">
-                <span className="ai-name">
-                  Chat with Kimi <span className="ai-badge">K2.6</span>
+            {me?.adminChatUnlocked && (
+              <Link to="/admin-chat" className="admin-item">
+                <span className="ai-icon">
+                  <IconSparkles size={20} stroke={1.8} />
                 </span>
-                <span className="ai-sub">Direct AI chat · files &amp; images</span>
-              </span>
-              <IconChevronRight className="ai-chevron" size={16} stroke={2} />
-            </Link>
+                <span className="ai-text">
+                  <span className="ai-name">
+                    Chat with Kimi <span className="ai-badge">K2.6</span>
+                  </span>
+                  <span className="ai-sub">Direct AI chat · files &amp; images</span>
+                </span>
+                <IconChevronRight className="ai-chevron" size={16} stroke={2} />
+              </Link>
+            )}
+            {me?.adminPanelUnlocked && (
+              <Link to="/admin" className="admin-item">
+                <span className="ai-icon">
+                  <IconGauge size={20} stroke={1.8} />
+                </span>
+                <span className="ai-text">
+                  <span className="ai-name">
+                    Admin Panel <span className="ai-badge">monitor</span>
+                  </span>
+                  <span className="ai-sub">Key limits · models · operability tests</span>
+                </span>
+                <IconChevronRight className="ai-chevron" size={16} stroke={2} />
+              </Link>
+            )}
           </>
         )}
 

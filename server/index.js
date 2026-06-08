@@ -18,6 +18,7 @@ import {
   getHistory,
   hasPaidPurchase,
   isAdminChatUnlocked,
+  isAdminPanelUnlocked,
   PACKAGES,
   GENERATION_COST,
 } from "./services/users.js";
@@ -82,6 +83,7 @@ app.get("/api/me", validateInitData, (req, res) => {
     isAdmin: admin,
     // Live re-check: stored flag is honoured only while still an admin.
     adminChatUnlocked: admin && isAdminChatUnlocked(telegramId),
+    adminPanelUnlocked: admin && isAdminPanelUnlocked(telegramId),
     packages: PACKAGES,
     generationCost: GENERATION_COST,
   });

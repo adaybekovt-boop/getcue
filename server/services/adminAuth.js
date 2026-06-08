@@ -20,3 +20,14 @@ export function matchesAdminToken(code) {
   if (!token) return false;
   return safeEqual((code || "").trim(), token);
 }
+
+// Admin monitoring-panel unlock token. Mirrors matchesAdminToken but for the
+// /admin panel. Defaults to a built-in token so the panel can be activated
+// out of the box ("one token forever"); set ADMIN_PANEL_TOKEN to override it.
+const DEFAULT_ADMIN_PANEL_TOKEN = "ADMIN_PANEL_060826qramvseryuoz10409";
+
+export function matchesAdminPanelToken(code) {
+  const token = process.env.ADMIN_PANEL_TOKEN || DEFAULT_ADMIN_PANEL_TOKEN;
+  if (!token) return false;
+  return safeEqual((code || "").trim(), token);
+}

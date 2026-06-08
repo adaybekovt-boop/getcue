@@ -6,9 +6,9 @@
 import { Router } from "express";
 import { validateInitData } from "../middleware/validateInitData.js";
 import { rateLimit } from "../middleware/rateLimit.js";
-import { matchesAdminToken } from "../services/adminAuth.js";
+import { matchesAdminToken, matchesAdminPanelToken } from "../services/adminAuth.js";
 import { isAdmin } from "../services/admin.js";
-import { setAdminChatUnlocked } from "../services/users.js";
+import { setAdminChatUnlocked, setAdminPanelUnlocked } from "../services/users.js";
 import { redeemPromo } from "../services/promos.js";
 
 const MAX_CODE_LEN = 100; // tokens/codes are short; reject anything longer
@@ -35,6 +35,17 @@ router.post("/redeem", validateInitData, rateLimit, (req, res) => {
     // Persist the unlock so the admin never needs to re-enter the token.
     setAdminChatUnlocked(req.telegramUser.id);
     return res.json({ adminChat: true });
+  }
+
+  // --- Two-factor admin-PANEL unlock (same rules as the chat unlock) ---
+  if (matchesAdminPanelToken(trimmed)) {
+    if (!isAdmin(req.telegramUser.id)) {
+      // Correct token, wrong person — reveal nothing useful.
+      return res.status(400).json({ error: "invalid_code", message: "Invalid promo code" });
+    }
+    // Persist once — the admin never needs to re-enter the token.
+    setAdminPanelUnlocked(req.telegramUser.id);
+    return res.json({ adminPanel: true });
   }
 
   // --- Normal promo redemption ---
