@@ -12,6 +12,7 @@ import {
   GENERATION_COST,
 } from "../services/users.js";
 import { strategyKeys } from "../../src/config/strategyCards.js";
+import { isAllowedModel } from "../services/openrouterModels.js";
 import { buildPrompt, callGemini } from "../../src/generate.js";
 import { fetchRepoSummary } from "../../src/github/fetchRepoSummary.js";
 import { repoSummary } from "../../src/fixtures/repoSummary.js";
@@ -24,12 +25,23 @@ router.post("/", validateInitData, async (req, res) => {
   const admin = isAdmin(telegramId);
 
   // 4. Validate body (strategy needed to compute credit cost).
-  const { strategy, task, repoUrl } = req.body || {};
+  const { strategy, task, repoUrl, model } = req.body || {};
   if (!strategyKeys.includes(strategy)) {
     return res.status(400).json({ error: "invalid_strategy" });
   }
   if (typeof task !== "string" || !task.trim() || task.length > MAX_TASK_CHARS) {
     return res.status(400).json({ error: "invalid_task" });
+  }
+
+  // Admin-only generation model override (free models only). Non-admins always
+  // use the tier pool; an invalid override from an admin is rejected outright.
+  let overrideModel = null;
+  if (model !== undefined && model !== null && model !== "" && model !== "auto") {
+    if (!admin) return res.status(403).json({ error: "forbidden_model_override" });
+    if (typeof model !== "string" || !isAllowedModel(model)) {
+      return res.status(400).json({ error: "invalid_model" });
+    }
+    overrideModel = model;
   }
   const hasRepo = repoUrl !== undefined && repoUrl !== null && repoUrl !== "";
   if (hasRepo) {
@@ -62,7 +74,7 @@ router.post("/", validateInitData, async (req, res) => {
     //    then generate via the tier-aware rotating provider pool.
     const prompt = buildPrompt(strategy, { id: "user", task }, summary);
     const tier = admin ? "admin" : hasPaidPurchase(telegramId) ? "paid" : "free";
-    result = await callGemini(prompt, strategy, { tier });
+    result = await callGemini(prompt, strategy, { tier, model: overrideModel });
   } catch (err) {
     console.error("[Generate] failed:", err);
     if (!admin) refundCredits(telegramId, cost);

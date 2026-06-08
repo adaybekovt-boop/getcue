@@ -168,9 +168,11 @@ async function buildBlocks(list) {
   return blocks;
 }
 
-// Selectable (free) models.
+// Selectable (free) models. Admin-only, but NOT gated on the chat unlock —
+// admins also use this list for the generation model override on the generate
+// screen (the list is just labels, nothing sensitive).
 app.get("/api/admin/models", validateInitData, (req, res) => {
-  if (!adminGate(req, res)) return;
+  if (!isAdmin(req.telegramUser.id)) return res.status(403).json({ error: "forbidden" });
   return res.json({ models: getModels() });
 });
 

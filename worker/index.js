@@ -362,11 +362,19 @@ async function handleGenerate(request, env) {
   const telegramUser = await requireTelegramUser(request, env);
   const admin = isAdmin(env, telegramUser.id);
   const body = await readJson(request);
-  const { strategy, task, repoUrl } = body;
+  const { strategy, task, repoUrl, model } = body;
 
   if (!strategyKeys.includes(strategy)) return json({ error: "invalid_strategy" }, 400);
   if (typeof task !== "string" || !task.trim() || task.length > MAX_TASK_CHARS) {
     return json({ error: "invalid_task" }, 400);
+  }
+  let overrideModel = null;
+  if (model !== undefined && model !== null && model !== "" && model !== "auto") {
+    if (!admin) return json({ error: "forbidden_model_override" }, 403);
+    if (typeof model !== "string" || !ADMIN_CHAT_MODELS[model]) {
+      return json({ error: "invalid_model" }, 400);
+    }
+    overrideModel = model;
   }
   if (repoUrl && !isValidGithubRepoUrl(repoUrl)) {
     return json({ error: "invalid_repoUrl" }, 400);
@@ -399,7 +407,17 @@ async function handleGenerate(request, env) {
       : (await hasPaidPurchase(env.DB, telegramUser.id))
       ? "paid"
       : "free";
-    result = await generateText(env, prompt, tier);
+    if (overrideModel) {
+      result = await adminChatComplete(
+        env,
+        ADMIN_CHAT_MODELS[overrideModel],
+        [{ role: "user", content: prompt }],
+        { maxTokens: 2000, temperature: 0.5 }
+      );
+      if (!result) throw new Error(`Model override unavailable: ${overrideModel}`);
+    } else {
+      result = await generateText(env, prompt, tier);
+    }
   } catch (error) {
     console.error("[Generate] failed:", error);
     if (!admin) await refundCredits(env.DB, telegramUser.id, cost);
@@ -492,8 +510,8 @@ async function requireAdminChatAccess(request, env) {
 }
 
 async function handleAdminModels(request, env) {
-  const access = await requireAdminChatAccess(request, env);
-  if (access.error) return access.error;
+  const telegramUser = await requireTelegramUser(request, env);
+  if (!isAdmin(env, telegramUser.id)) return json({ error: "forbidden" }, 403);
   return json({ models: ADMIN_CHAT_MODEL_LIST });
 }
 

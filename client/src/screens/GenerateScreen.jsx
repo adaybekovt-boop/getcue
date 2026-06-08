@@ -13,6 +13,15 @@ import { MODEL_BY_STRATEGY } from "../models.js";
 import { tgUser } from "../tgUser.js";
 import Avatar from "../components/Avatar.jsx";
 import ModelBottomSheet from "../components/ModelBottomSheet.jsx";
+import ModelChatSheet from "../components/ModelChatSheet.jsx";
+import { prettyTitle } from "../modelName.js";
+
+const GEN_MODEL_KEY = "cue_gen_model";
+const AUTO_MODEL = {
+  id: "auto",
+  label: "Auto (default)",
+  blurb: "Normal provider pool — Gemini, then fallbacks.",
+};
 
 const MAX_TASK = 2000;
 
@@ -24,6 +33,15 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showModelSheet, setShowModelSheet] = useState(false);
+  const [showGenModelSheet, setShowGenModelSheet] = useState(false);
+  const [genModels, setGenModels] = useState([]);
+  const [genModel, setGenModel] = useState(() => {
+    try {
+      return localStorage.getItem(GEN_MODEL_KEY) || null;
+    } catch {
+      return null;
+    }
+  });
   const [copied, setCopied] = useState(false);
   // One-time welcome banner: tells new users they already have free credits.
   const [showWelcome, setShowWelcome] = useState(() => {
@@ -41,6 +59,11 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
   const model = MODEL_BY_STRATEGY[strategy];
   const ModelIcon = model.Icon;
 
+  const genModelList = [AUTO_MODEL, ...genModels];
+  const genModelLabel = genModel
+    ? genModels.find((m) => m.id === genModel)?.label || prettyTitle({ id: genModel })
+    : "Auto";
+
   function dismissWelcome() {
     setShowWelcome(false);
     try {
@@ -49,6 +72,32 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
       /* storage unavailable */
     }
   }
+
+  // Admins can override the generation model — fetch the free-model list once.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    api("/api/admin/models")
+      .then((d) => {
+        if (!cancelled && Array.isArray(d.models)) setGenModels(d.models);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  // Persist the chosen generation model; changing it clears the previous result.
+  useEffect(() => {
+    try {
+      if (genModel) localStorage.setItem(GEN_MODEL_KEY, genModel);
+      else localStorage.removeItem(GEN_MODEL_KEY);
+    } catch {
+      /* storage unavailable */
+    }
+    setResult(null);
+    setError(null);
+  }, [genModel]);
 
   // One input state = one result. Changing any input clears the previous result.
   useEffect(() => {
@@ -76,6 +125,7 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
         if (!/^https?:\/\//i.test(repo)) repo = "https://" + repo;
         body.repoUrl = repo;
       }
+      if (isAdmin && genModel) body.model = genModel;
       const data = await api("/api/generate", {
         method: "POST",
         body: JSON.stringify(body),
@@ -210,6 +260,21 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
         )}
       </div>
 
+      {isAdmin && (
+        <div className="admin-gen-bar">
+          <span className="agb-label">Generation model</span>
+          <button
+            type="button"
+            className="agb-btn"
+            onClick={() => setShowGenModelSheet(true)}
+          >
+            <span className="agb-name">{genModelLabel}</span>
+            <IconChevronDown size={11} stroke={2.5} />
+          </button>
+          <span className="agb-badge">admin</span>
+        </div>
+      )}
+
       <div className="action-bar">
         <button
           type="button"
@@ -247,6 +312,16 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
         onSelect={setStrategy}
         onClose={() => setShowModelSheet(false)}
       />
+
+      {isAdmin && (
+        <ModelChatSheet
+          isOpen={showGenModelSheet}
+          models={genModelList}
+          currentModel={genModel || "auto"}
+          onSelect={(id) => setGenModel(id === "auto" ? null : id)}
+          onClose={() => setShowGenModelSheet(false)}
+        />
+      )}
     </div>
   );
 }

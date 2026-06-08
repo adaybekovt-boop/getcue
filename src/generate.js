@@ -10,7 +10,12 @@ import OpenAI from "openai";
 import { generatorPrompt } from "./config/generatorPrompt.js";
 import { strategyCards } from "./config/strategyCards.js";
 import { repoSummary } from "./fixtures/repoSummary.js";
-import { getActiveKeyForTier, reportError, getPoolStatus } from "./gemini/keyManager.js";
+import {
+  getActiveKeyForTier,
+  getActiveKeyForProvider,
+  reportError,
+  getPoolStatus,
+} from "./gemini/keyManager.js";
 
 const MODEL_ID = "gemini-2.5-flash";
 const TEMPERATURE = 0.5;
@@ -125,7 +130,9 @@ function shouldRotate(error) {
     return true;
   }
   const msg = (error.message || String(error)).toLowerCase();
-  return /timeout|temporarily|overload|econnreset|etimedout|enotfound|fetch failed|socket hang up|network|empty response/.test(
+  // Empty / non-JSON response bodies surface as a JSON SyntaxError from the SDK
+  // ("Unexpected end of JSON input") — flaky provider blips, worth rotating.
+  return /timeout|temporarily|overload|econnreset|etimedout|enotfound|fetch failed|socket hang up|network|empty response|unexpected end of json|unexpected token|invalid json|json input/.test(
     msg
   );
 }
@@ -162,6 +169,60 @@ async function generateOnce(key, provider, prompt) {
   return text.trim();
 }
 
+// OpenRouter key pools that can serve an arbitrary free model (admin override).
+const OR_PROVIDERS = ["gptoss", "kimi", "gemma"];
+const _orClients = new Map();
+function openrouterClient(key) {
+  let client = _orClients.get(key);
+  if (!client) {
+    client = new OpenAI({
+      apiKey: key,
+      baseURL: OPENROUTER_BASE,
+      defaultHeaders: OR_HEADERS,
+      timeout: 60_000,
+      maxRetries: 0,
+    });
+    _orClients.set(key, client);
+  }
+  return client;
+}
+
+// Admin-only: generate with a SPECIFIC OpenRouter model, rotating across all
+// OpenRouter key pools on rotate-worthy failures. Used when an admin explicitly
+// picks the generation model on the generate screen.
+async function generateWithModel(modelId, prompt) {
+  let lastError;
+  for (let attempt = 0; attempt < MAX_ROTATIONS; attempt++) {
+    let active = null;
+    for (const provider of OR_PROVIDERS) {
+      try {
+        active = { key: getActiveKeyForProvider(provider).key, provider };
+        break;
+      } catch {
+        /* this pool is empty or fully cooled — try the next */
+      }
+    }
+    if (!active) throw lastError || new Error("No OpenRouter keys available for model override");
+    try {
+      console.log(`[Generator] Admin model override: ${modelId} via ${active.provider} key`);
+      const response = await openrouterClient(active.key).chat.completions.create({
+        model: modelId,
+        messages: [{ role: "user", content: prompt }],
+        temperature: TEMPERATURE,
+        max_tokens: MAX_TOKENS,
+      });
+      const text = response.choices?.[0]?.message?.content;
+      if (!text || !text.trim()) throw new Error(`${modelId} returned an empty response.`);
+      return text.trim();
+    } catch (error) {
+      if (!shouldRotate(error)) throw error;
+      reportError(active.key, active.provider, error);
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`Model override (${modelId}) failed after rotations`);
+}
+
 /**
  * Generate the optimized prompt. Picks the active key/provider from the fallback
  * chain (Gemini first). On a rotate-worthy failure the offending key is reported
@@ -171,8 +232,12 @@ async function generateOnce(key, provider, prompt) {
  * `strategy` is accepted for signature compatibility (it selects the prompt card
  * in buildPrompt, not the generation model). Name kept as callGemini for
  * backward compatibility.
+ *
+ * `options.model` (admin only): force a specific OpenRouter model id instead of
+ * the tier pool.
  */
 export async function callGemini(prompt, strategy = "claude-standard", options = {}) {
+  if (options.model) return generateWithModel(options.model, prompt);
   const tier = options.tier || "free";
   let lastError;
   for (let attempt = 0; attempt < MAX_ROTATIONS; attempt++) {
