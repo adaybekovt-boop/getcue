@@ -26,13 +26,17 @@ import { isAdmin } from "./services/admin.js";
 import { openRouterChat } from "./services/adminChat.js";
 import { extractFileText } from "./services/fileExtract.js";
 import { getModels, isAllowedModel, DEFAULT_MODEL } from "./services/openrouterModels.js";
+import { callModel } from "./providers/callModel.js";
+import { resolveModel, getPlatformsForClient } from "./config/resolveModel.js";
+import { PLATFORMS } from "./config/adminPlatforms.js";
+import { generateGeminiImage } from "./providers/geminiImage.js";
 import {
   createChat,
   listChats,
   getOwnedChat,
   getMessages,
   addMessage,
-  setChatModel,
+  setChatSelection,
   setChatRepo,
   touchChatMaybeTitle,
   deleteChat,
@@ -51,6 +55,7 @@ const clientDist = path.resolve(__dirname, "../client/dist");
 // limits, parsed BEFORE the global parser so the 512kb cap doesn't reject them.
 app.use("/api/generate-image-prompt", express.json({ limit: "8mb" }));
 app.use("/api/admin/chats", express.json({ limit: "48mb" })); // up to 3 × 10MB attachments
+app.use("/api/admin/generate-image", express.json({ limit: "16mb" })); // prompt + optional 10MB ref
 app.use(express.json({ limit: "512kb" }));
 
 // CORS — allow all origins (the Mini App runs inside Telegram's webview).
@@ -141,6 +146,26 @@ function adminGate(req, res) {
   return true;
 }
 
+const PLATFORM_SET = new Set(["openrouter", "groq", "gemini"]);
+
+// Map a provider/dispatch error to an HTTP response. Never leaks the key — the
+// key only ever lives in a request header, never in these error fields.
+function mapChatError(res, err) {
+  if (err?.type === "rate_limit") {
+    return res.status(429).json({ error: "rate_limit", provider: err.provider });
+  }
+  if (err?.type === "provider_error") {
+    return res
+      .status(502)
+      .json({ error: "provider_error", detail: err.body ? String(err.body).slice(0, 200) : `status ${err.status}` });
+  }
+  if (err?.type === "network_error") {
+    return res.status(502).json({ error: "network_error", detail: String(err.message || "").slice(0, 200) });
+  }
+  console.error("[AdminChat] failed:", err?.message);
+  return res.status(502).json({ error: "chat_failed" });
+}
+
 function validateAttachments(attachments) {
   if (attachments === undefined) return { ok: true, list: [] };
   if (!Array.isArray(attachments) || attachments.length > ATT_MAX) {
@@ -179,6 +204,62 @@ app.get("/api/admin/models", validateInitData, (req, res) => {
   return res.json({ models: getModels() });
 });
 
+// Platform/model/effort options for the chat UI dropdowns. Safe shape only —
+// labels + model ids + effort keys; NO real api model strings, NO keys.
+app.get("/api/admin/platforms", validateInitData, (req, res) => {
+  if (!adminGate(req, res)) return;
+  return res.json(getPlatformsForClient());
+});
+
+// Admin image generation (Prompt → Image) via the Gemini native SDK. No credits,
+// no usage_log. Optional reference image as a data URL.
+const GEN_IMG_MAX = 14_000_000; // ~10MB reference image once base64-encoded
+app.post("/api/admin/generate-image", validateInitData, async (req, res) => {
+  if (!adminGate(req, res)) return;
+  const { prompt, image } = req.body || {};
+
+  if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 2000) {
+    return res.status(400).json({ error: "invalid_prompt" });
+  }
+  if (image !== undefined && image !== null) {
+    if (typeof image !== "string" || !/^data:[^;,]+;base64,/.test(image)) {
+      return res.status(400).json({ error: "invalid_image" });
+    }
+    if (image.length > GEN_IMG_MAX) {
+      return res.status(400).json({ error: "image_too_large" });
+    }
+  }
+
+  const imgCfg = PLATFORMS.gemini.image; // { apiModel, keyEnv }
+  const apiKey = process.env[imgCfg.keyEnv];
+  if (!apiKey || !apiKey.trim()) {
+    console.error("[AdminImage] missing key:", imgCfg.keyEnv);
+    return res.status(500).json({ error: "image_unavailable" });
+  }
+
+  try {
+    const dataUrl = await generateGeminiImage({
+      apiKey,
+      apiModel: imgCfg.apiModel,
+      prompt: prompt.trim(),
+      image: image || null,
+    });
+    return res.json({ image: dataUrl });
+  } catch (err) {
+    if (err?.type === "rate_limit") return res.status(429).json({ error: "rate_limit" });
+    if (err?.type === "provider_error") {
+      return res
+        .status(502)
+        .json({ error: "provider_error", detail: err.body ? String(err.body).slice(0, 200) : `status ${err.status}` });
+    }
+    if (err?.type === "network_error") {
+      return res.status(502).json({ error: "network_error", detail: String(err.message || "").slice(0, 200) });
+    }
+    console.error("[AdminImage] failed:", err?.message);
+    return res.status(502).json({ error: "image_failed" });
+  }
+});
+
 // List the admin's chats, newest first.
 app.get("/api/admin/chats", validateInitData, (req, res) => {
   if (!adminGate(req, res)) return;
@@ -203,6 +284,8 @@ app.get("/api/admin/chats/:id/messages", validateInitData, (req, res) => {
   return res.json({
     messages: getMessages(chat.id),
     model: chat.model,
+    platform: chat.platform || "openrouter",
+    effort: chat.effort || null,
     title: chat.title,
     repo: chat.repo || null,
   });
@@ -214,7 +297,8 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
   const chat = getOwnedChat(req.telegramUser.id, req.params.id);
   if (!chat) return res.status(404).json({ error: "not_found" });
 
-  const { content, attachments, model } = req.body || {};
+  const body = req.body || {};
+  const { content, attachments } = body;
   if (typeof content !== "string" || content.length > 8000) {
     return res.status(400).json({ error: "invalid_content" });
   }
@@ -224,13 +308,43 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     return res.status(400).json({ error: "empty_message" });
   }
 
-  // Optional per-chat model switch (free-only).
-  let useModel = chat.model;
-  if (model && model !== chat.model) {
-    if (!isAllowedModel(model)) return res.status(400).json({ error: "invalid_model" });
-    setChatModel(chat.id, model);
-    useModel = model;
+  // Resolve the per-chat selection (platform + model + effort) from the request,
+  // falling back to the chat's stored selection. Validate before any work.
+  const platform = String(body.platform || chat.platform || "openrouter");
+  if (!PLATFORM_SET.has(platform)) {
+    return res.status(400).json({ error: "unknown_platform" });
   }
+  let model;
+  let effort;
+  if (platform === "openrouter") {
+    // Existing OpenRouter handling: model is an OpenRouter id from the free list.
+    if (body.model != null && body.model !== "" && !isAllowedModel(body.model)) {
+      return res.status(400).json({ error: "invalid_model" });
+    }
+    model = isAllowedModel(body.model)
+      ? body.model
+      : chat.platform === "openrouter" && chat.model
+        ? chat.model
+        : DEFAULT_MODEL;
+    effort = null;
+  } else {
+    // groq / gemini: model is a registry key; validate the combo via resolveModel.
+    const sameP = chat.platform === platform;
+    model = body.model || (sameP ? chat.model : null) || (platform === "gemini" ? "gemini" : "gpt");
+    effort = body.effort || (sameP ? chat.effort : null) || "high";
+    try {
+      resolveModel(platform, model, effort);
+    } catch (e) {
+      const type = String(e.message || "").split(":")[0].trim();
+      if (type === "invalid_effort" || type === "unknown_platform" || type === "unknown_model") {
+        return res.status(400).json({ error: type });
+      }
+      console.error("[AdminChat] resolve failed:", type);
+      return res.status(500).json({ error: "model_unavailable" });
+    }
+  }
+  // Persist the selection so reopening the chat restores the dropdowns.
+  setChatSelection(chat.id, platform, model, effort);
 
   const typed = content.trim();
   const command = parseCommand(typed);
@@ -240,7 +354,9 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     if (!command.arg) {
       return res.json({
         reply: "Usage: /github <repo url or owner/repo>",
-        model: useModel,
+        model,
+        platform,
+        effort,
         repo: chat.repo || null,
       });
     }
@@ -256,7 +372,7 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
       addMessage(chat.id, "user", typed, []);
       addMessage(chat.id, "assistant", fail, []);
       touchChatMaybeTitle(chat.id, typed);
-      return res.json({ reply: fail, model: useModel, repo: chat.repo || null });
+      return res.json({ reply: fail, model, platform, effort, repo: chat.repo || null });
     }
     setChatRepo(chat.id, info.repo, info.context);
     const kb = Math.round(info.chars / 1024);
@@ -266,7 +382,7 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     addMessage(chat.id, "user", typed, []);
     addMessage(chat.id, "assistant", reply, []);
     touchChatMaybeTitle(chat.id, info.repo);
-    return res.json({ reply, model: useModel, repo: info.repo });
+    return res.json({ reply, model, platform, effort, repo: info.repo });
   }
 
   // ── Hidden system prompt: /plan, /critic, plus any loaded-repo context. ──
@@ -332,16 +448,32 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
   }
   outgoing.push(...prior, userContent);
 
+  const hasImage = att.list.some((a) => a.type === "image");
   try {
-    const reply = await openRouterChat(outgoing, useModel);
+    let reply;
+    if (platform === "openrouter") {
+      // Existing OpenRouter path (its own key rotation + headers) — unchanged.
+      reply = await openRouterChat(outgoing, model);
+    } else {
+      // Groq / Gemini via the Phase-2 dispatcher. Groq images route to the
+      // vision model (Llama 4 Scout); Gemini flash reads images natively.
+      reply = await callModel({
+        platform,
+        model,
+        effort,
+        messages: outgoing,
+        vision: hasImage && platform === "groq",
+      });
+      reply = (reply || "").trim();
+      if (!reply) return res.status(502).json({ error: "provider_error", detail: "empty_response" });
+    }
     const attMeta = att.list.map((a) => ({ type: a.type, name: a.name || "file" }));
     addMessage(chat.id, "user", typed, attMeta); // store typed text (with the slash command)
     addMessage(chat.id, "assistant", reply, []);
     touchChatMaybeTitle(chat.id, typed || attMeta[0]?.name || "");
-    return res.json({ reply, model: useModel, repo: chat.repo || null });
+    return res.json({ reply, model, platform, effort, repo: chat.repo || null });
   } catch (err) {
-    console.error("[AdminChat] failed:", err.message);
-    return res.status(502).json({ error: "chat_failed" });
+    return mapChatError(res, err);
   }
 });
 

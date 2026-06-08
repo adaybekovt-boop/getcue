@@ -1,7 +1,12 @@
 {
+  // NOTE: The Cloudflare Worker backend is ARCHIVED and no longer deployed.
+  // Production runs the Node Express server — `node server/index.js` (package.json
+  // "start") — which serves client/dist + the full /api (admin multi-platform chat
+  // and image generation). The former worker entry is preserved at
+  // worker/index.js.archived for reference only and is intentionally NOT built
+  // here (no "main"). Do not `wrangler deploy` this config.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "getcue",
-  "main": "worker/index.js",
   "compatibility_date": "2026-06-07",
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "4779193285f4b7225a52cfb160958347",

@@ -10,6 +10,7 @@ import {
   IconArrowRight,
   IconCheck,
   IconCopy,
+  IconDownload,
 } from "@tabler/icons-react";
 import { api } from "../api.js";
 import { tgUser } from "../tgUser.js";
@@ -35,12 +36,23 @@ export default function ImagePromptScreen({ me, setCredits }) {
   const [showSheet, setShowSheet] = useState(false);
   const [activePreset, setActivePreset] = useState(null);
 
+  // Prompt → Image (admin only) — separate state so Image → Prompt is untouched.
+  const [mode, setMode] = useState("i2p"); // 'i2p' = Image→Prompt | 'p2i' = Prompt→Image
+  const [genPrompt, setGenPrompt] = useState("");
+  const [refImage, setRefImage] = useState(null);
+  const [genResult, setGenResult] = useState(null);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genError, setGenError] = useState(null);
+
   const fileRef = useRef(null);
   const imgRef = useRef(null);
   const canvasRef = useRef(null);
   const strokingRef = useRef(false);
+  const refFileRef = useRef(null);
 
   const isAdmin = !!(me && me.isAdmin);
+  // Same gate as the backend: admin + chat unlocked (both reflected on /api/me).
+  const canGenImage = !!(me && me.adminChatUnlocked);
   const credits = me ? me.credits : null;
   const model = IMAGE_MODEL_BY_ID[targetModel];
   const ModelIcon = iconForType(model.type);
@@ -50,6 +62,13 @@ export default function ImagePromptScreen({ me, setCredits }) {
     setResult(null);
     setError(null);
   }, [imageSrc, task, targetModel]);
+
+  // Prompt → Image: editing the prompt / reference, or switching mode, clears
+  // the previously generated image.
+  useEffect(() => {
+    setGenResult(null);
+    setGenError(null);
+  }, [genPrompt, refImage, mode]);
 
   // Keep the annotation canvas locked to the rendered image size so it never
   // drifts or shifts the layout when the viewport changes (e.g. keyboard open).
@@ -220,6 +239,53 @@ export default function ImagePromptScreen({ me, setCredits }) {
     }
   }
 
+  // --- Prompt → Image (admin) ---
+  function onRefFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setGenError("invalid_image");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setGenError("image_too_large");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setRefImage(reader.result);
+      setGenResult(null);
+      setGenError(null);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleGenerateImage() {
+    const p = genPrompt.trim();
+    if (!p || genLoading) return;
+    setGenLoading(true);
+    setGenError(null);
+    setGenResult(null);
+    try {
+      const body = { prompt: p };
+      if (refImage) body.image = refImage; // optional reference as a data URL
+      const data = await api("/api/admin/generate-image", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setGenResult(data.image);
+    } catch (e) {
+      if (e.status === 429 || e.data?.error === "rate_limit") setGenError("rate_limit");
+      else if (e.status === 403) setGenError("forbidden");
+      else if (e.status === 400)
+        setGenError(e.data?.error === "image_too_large" ? "image_too_large" : "invalid_input");
+      else setGenError("generation_failed");
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
   const disabled = loading || !imageSrc || !task.trim();
 
   return (
@@ -243,9 +309,26 @@ export default function ImagePromptScreen({ me, setCredits }) {
           <Link to="/" className="mode-seg">
             Text → Prompt
           </Link>
-          <span className="mode-seg active">Image → Prompt</span>
+          <button
+            type="button"
+            className={"mode-seg" + (mode === "i2p" ? " active" : "")}
+            onClick={() => setMode("i2p")}
+          >
+            Image → Prompt
+          </button>
+          {canGenImage && (
+            <button
+              type="button"
+              className={"mode-seg" + (mode === "p2i" ? " active" : "")}
+              onClick={() => setMode("p2i")}
+            >
+              Prompt → Image
+            </button>
+          )}
         </div>
 
+        {mode === "i2p" && (
+          <>
         {/* Image area */}
         {!imageSrc ? (
           <button
@@ -379,40 +462,128 @@ export default function ImagePromptScreen({ me, setCredits }) {
             <pre className="output-text">{result}</pre>
           </div>
         )}
+          </>
+        )}
+
+        {mode === "p2i" && (
+          <>
+            <textarea
+              className="img-task"
+              placeholder="Describe the image to generate..."
+              value={genPrompt}
+              maxLength={MAX_TASK}
+              onChange={(e) => setGenPrompt(e.target.value)}
+            />
+            {!refImage ? (
+              <button
+                type="button"
+                className="upload-zone gen-ref-zone"
+                onClick={() => refFileRef.current?.click()}
+              >
+                <IconPhotoPlus size={28} stroke={1.4} />
+                <span className="uz-title">Add reference image (optional)</span>
+                <span className="uz-sub">JPG, PNG up to 10MB</span>
+              </button>
+            ) : (
+              <div className="img-wrap">
+                <img className="img-preview" src={refImage} alt="reference" />
+                <button
+                  type="button"
+                  className="img-remove"
+                  onClick={() => setRefImage(null)}
+                  aria-label="Remove reference"
+                >
+                  <IconX size={16} stroke={2.2} />
+                </button>
+              </div>
+            )}
+            <div className="gen-hint">via gemini-2.5-flash-image</div>
+            {genError && (
+              <div className="error-banner">
+                <span>
+                  {genError === "rate_limit"
+                    ? "Rate limited — try again."
+                    : genError === "image_too_large"
+                      ? "Image too large (max 10MB)."
+                      : genError === "invalid_image"
+                        ? "Please choose an image file."
+                        : genError === "forbidden"
+                          ? "Admin access required."
+                          : "Generation failed. Please try again."}
+                </span>
+              </div>
+            )}
+            {genResult && (
+              <div className="gen-result">
+                <div className="gen-image-wrap">
+                  <img className="gen-image" src={genResult} alt="generated" />
+                </div>
+                <a className="gen-download" href={genResult} download="cue-image.png">
+                  <IconDownload size={15} stroke={1.9} /> Download
+                </a>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      <div className="cost-hint">{COST} credits</div>
+      {mode === "i2p" ? (
+        <>
+          <div className="cost-hint">{COST} credits</div>
 
-      <div className="action-bar">
-        <button
-          type="button"
-          className="model-selector"
-          onClick={() => setShowSheet(true)}
-        >
-          <ModelIcon className="ms-icon" size={15} stroke={1.8} />
-          <span className="ms-name">{model.label}</span>
-          <IconChevronDown className="ms-chevron" size={10} stroke={2.5} />
-        </button>
+          <div className="action-bar">
+            <button
+              type="button"
+              className="model-selector"
+              onClick={() => setShowSheet(true)}
+            >
+              <ModelIcon className="ms-icon" size={15} stroke={1.8} />
+              <span className="ms-name">{model.label}</span>
+              <IconChevronDown className="ms-chevron" size={10} stroke={2.5} />
+            </button>
 
-        <button
-          type="button"
-          className={"generate-btn" + (loading ? " loading" : "")}
-          disabled={disabled}
-          onClick={handleGenerate}
-        >
-          {loading ? (
-            <>
-              <span className="spinner" aria-hidden="true" />
-              Generating…
-            </>
-          ) : (
-            <>
-              Generate
-              <IconArrowRight size={17} stroke={2} />
-            </>
-          )}
-        </button>
-      </div>
+            <button
+              type="button"
+              className={"generate-btn" + (loading ? " loading" : "")}
+              disabled={disabled}
+              onClick={handleGenerate}
+            >
+              {loading ? (
+                <>
+                  <span className="spinner" aria-hidden="true" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  Generate
+                  <IconArrowRight size={17} stroke={2} />
+                </>
+              )}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="action-bar">
+          <button
+            type="button"
+            className={"generate-btn" + (genLoading ? " loading" : "")}
+            disabled={genLoading || !genPrompt.trim()}
+            onClick={handleGenerateImage}
+          >
+            {genLoading ? (
+              <>
+                <span className="spinner" aria-hidden="true" />
+                Generating…
+              </>
+            ) : (
+              <>
+                Generate image
+                <IconArrowRight size={17} stroke={2} />
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       <input
         ref={fileRef}
@@ -420,6 +591,14 @@ export default function ImagePromptScreen({ me, setCredits }) {
         accept="image/*"
         hidden
         onChange={onFile}
+      />
+
+      <input
+        ref={refFileRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={onRefFile}
       />
 
       <ImageTargetSheet

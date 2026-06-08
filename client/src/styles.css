@@ -6,6 +6,7 @@
   --bg: #161311;
   --surface: #1e1b17;
   --surface2: #252118;
+  --surface-pop: #211d18;
   --border: #2b2420;
   --border2: #332d28;
   --orange: #e8622a;
@@ -1028,6 +1029,60 @@ button {
   color: var(--text3);
 }
 
+/* ── Prompt → Image (admin) ── */
+.gen-ref-zone {
+  flex: none;
+  min-height: 120px;
+}
+
+.gen-hint {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text3);
+  font-family: var(--font-mono);
+}
+
+.gen-result {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gen-image-wrap {
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  line-height: 0;
+}
+
+.gen-image {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.gen-download {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.gen-download:active {
+  border-color: var(--orange-bd);
+}
+
 /* =========================================================================
    Admin chat (hidden)
    ========================================================================= */
@@ -1127,6 +1182,167 @@ button {
 
 .ac-model-menu .acm-eye {
   color: var(--text2);
+}
+
+/* ── Model selector pills (admin chat header) ───────────────────────────── */
+.ac-selectbar {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.ac-pill-cell {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.ac-pill {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+
+.ac-pill.open {
+  border-color: var(--orange-bd);
+  background: var(--orange-bg);
+}
+
+.ac-pill:disabled,
+.ac-pill.muted {
+  color: var(--text2);
+  cursor: default;
+}
+
+.ac-pill-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-pill-chev {
+  flex: none;
+  color: var(--text2);
+}
+
+.ac-pop-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+}
+
+.ac-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: 156px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--surface-pop);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  animation: ac-pop-in 140ms var(--ease-out);
+}
+
+.ac-pop.left { left: 0; }
+.ac-pop.right { right: 0; }
+
+@keyframes ac-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.ac-pop-row {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ac-pop-row:active { background: rgba(255, 255, 255, 0.03); }
+
+.ac-pop-row.sel {
+  background: var(--orange-bg);
+  color: var(--orange);
+}
+
+.ac-pop-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ac-pop-main {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ac-pop-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text2);
+}
+
+.ac-pop-check {
+  flex: none;
+  margin-left: 8px;
+  color: var(--orange);
+}
+
+/* Provider sub-tag shown in the empty-chat header. */
+.ace-provider {
+  margin-left: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ac-pop { animation: none; }
 }
 
 /* Slash-command hint row above the input. */

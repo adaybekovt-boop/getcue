@@ -8,10 +8,10 @@ const MAX_CHATS = 200;
 const TITLE_MAX = 60;
 
 const insertChat = db.prepare(
-  "INSERT INTO admin_chats (telegram_id, title, model) VALUES (?, ?, ?)"
+  "INSERT INTO admin_chats (telegram_id, title, model, platform, effort) VALUES (?, ?, ?, ?, ?)"
 );
 const selectChats = db.prepare(
-  `SELECT c.id, c.title, c.model, c.updated_at,
+  `SELECT c.id, c.title, c.model, c.platform, c.effort, c.updated_at,
           (SELECT m.content FROM admin_chat_messages m
              WHERE m.chat_id = c.id ORDER BY m.id DESC LIMIT 1) AS preview,
           (SELECT COUNT(*) FROM admin_chat_messages m WHERE m.chat_id = c.id) AS count
@@ -21,7 +21,7 @@ const selectChats = db.prepare(
    LIMIT ?`
 );
 const selectChat = db.prepare(
-  "SELECT id, telegram_id, title, model, repo, repo_context FROM admin_chats WHERE id = ?"
+  "SELECT id, telegram_id, title, model, platform, effort, repo, repo_context FROM admin_chats WHERE id = ?"
 );
 const touchChatStmt = db.prepare(
   "UPDATE admin_chats SET updated_at = strftime('%s','now') WHERE id = ?"
@@ -31,6 +31,9 @@ const renameChatStmt = db.prepare(
 );
 const setModelStmt = db.prepare(
   "UPDATE admin_chats SET model = ?, updated_at = strftime('%s','now') WHERE id = ?"
+);
+const setSelectionStmt = db.prepare(
+  "UPDATE admin_chats SET platform = ?, model = ?, effort = ?, updated_at = strftime('%s','now') WHERE id = ?"
 );
 const setRepoStmt = db.prepare(
   "UPDATE admin_chats SET repo = ?, repo_context = ?, updated_at = strftime('%s','now') WHERE id = ?"
@@ -49,8 +52,16 @@ const selectMsgs = db.prepare(
   "SELECT role, content, attachments_json, created_at FROM admin_chat_messages WHERE chat_id = ? ORDER BY id ASC LIMIT ?"
 );
 
-export function createChat(telegramId, model, title = "New chat") {
-  return insertChat.run(Number(telegramId), title.slice(0, TITLE_MAX), model).lastInsertRowid;
+// platform/effort default to an OpenRouter chat (the existing create flow); the
+// Phase-4 UI passes groq/gemini selections explicitly.
+export function createChat(telegramId, model, title = "New chat", platform = "openrouter", effort = null) {
+  return insertChat.run(
+    Number(telegramId),
+    title.slice(0, TITLE_MAX),
+    model,
+    platform,
+    effort
+  ).lastInsertRowid;
 }
 
 export function listChats(telegramId) {
@@ -84,6 +95,11 @@ export function addMessage(chatId, role, content, attachments) {
 
 export function setChatModel(chatId, model) {
   setModelStmt.run(model, Number(chatId));
+}
+
+// Persist the full per-chat selection (platform + model + effort) in one update.
+export function setChatSelection(chatId, platform, model, effort) {
+  setSelectionStmt.run(platform, model, effort ?? null, Number(chatId));
 }
 
 // Store the loaded GitHub repo + its fetched code context for this chat.

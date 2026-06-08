@@ -120,6 +120,18 @@ if (!adminChatCols.some((c) => c.name === "repo_context")) {
   db.exec("ALTER TABLE admin_chats ADD COLUMN repo_context TEXT");
 }
 
+// Multi-platform admin chat (Phase 3): per-chat platform + effort. The existing
+// `model` column is reused (OpenRouter id when platform='openrouter'; registry
+// key 'gpt'/'qwen'/'meta'/'gemini' for groq/gemini). Existing rows are OpenRouter
+// chats, so default platform to 'openrouter' (NOT 'groq') so their stored model
+// ids keep resolving.
+if (!adminChatCols.some((c) => c.name === "platform")) {
+  db.exec("ALTER TABLE admin_chats ADD COLUMN platform TEXT NOT NULL DEFAULT 'openrouter'");
+}
+if (!adminChatCols.some((c) => c.name === "effort")) {
+  db.exec("ALTER TABLE admin_chats ADD COLUMN effort TEXT DEFAULT 'high'");
+}
+
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_log_payment_id
   ON purchase_log(payment_id)

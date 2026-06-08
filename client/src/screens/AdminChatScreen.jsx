@@ -9,7 +9,6 @@ import {
   IconFileText,
   IconCamera,
   IconX,
-  IconChevronDown,
   IconPencilPlus,
   IconMessage2,
   IconBrandGithub,
@@ -18,7 +17,7 @@ import {
 } from "@tabler/icons-react";
 import WebApp from "@twa-dev/sdk";
 import { api } from "../api.js";
-import ModelChatSheet from "../components/ModelChatSheet.jsx";
+import ModelSelectorBar from "../components/ModelSelectorBar.jsx";
 import { prettyTitle } from "../modelName.js";
 
 const SLASH_COMMANDS = [
@@ -26,6 +25,27 @@ const SLASH_COMMANDS = [
   { cmd: "/plan", icon: IconBulb, hint: "Deep planning — turns a request into an executable plan" },
   { cmd: "/critic", icon: IconSearch, hint: "Honest, substance-only code review" },
 ];
+
+// Default selection for a brand-new chat (and the offline fallback).
+const DEFAULT_SEL = { platform: "groq", model: "gpt", effort: "high" };
+
+// Minimal built-in platform shape used only if GET /api/admin/platforms fails,
+// so the dropdowns + chat still work. Mirrors the safe shape (labels only).
+const FALLBACK_PLATFORMS = {
+  groq: {
+    label: "Groq",
+    models: [
+      { id: "gpt", label: "GPT", effort: ["low", "high"] },
+      { id: "qwen", label: "Qwen", effort: [] },
+      { id: "meta", label: "Meta", effort: ["low", "high"] },
+    ],
+  },
+  gemini: {
+    label: "Gemini",
+    models: [{ id: "gemini", label: "Gemini 3", effort: ["fast", "medium", "high"] }],
+  },
+  openrouter: { label: "OpenRouter", passthrough: true },
+};
 
 const MAX_ATT = 3;
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB each
@@ -91,15 +111,19 @@ function confirmDialog(text, onYes) {
 }
 
 // Full admin chat app: chat list + conversation view. Multiple persistent chats,
-// each with its own free model. Access gated by the live /api/me unlock flag.
+// each with its own platform/model/effort selection. Access gated by the live
+// /api/me unlock flag.
 export default function AdminChatScreen({ me }) {
   const navigate = useNavigate();
   const [view, setView] = useState("list"); // 'list' | 'chat'
   const [chats, setChats] = useState([]);
-  const [models, setModels] = useState([]);
+  const [platforms, setPlatforms] = useState(null); // safe shape from /api/admin/platforms
+  const [models, setModels] = useState([]); // OpenRouter free models (for the openrouter path)
 
   const [activeChatId, setActiveChatId] = useState(null);
-  const [model, setModel] = useState("");
+  const [platform, setPlatform] = useState(DEFAULT_SEL.platform);
+  const [model, setModel] = useState(DEFAULT_SEL.model);
+  const [effort, setEffort] = useState(DEFAULT_SEL.effort);
   const [repo, setRepo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -107,8 +131,6 @@ export default function AdminChatScreen({ me }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [showModelSheet, setShowModelSheet] = useState(false);
-  const sheetModeRef = useRef("switch"); // 'new' | 'switch'
 
   const endRef = useRef(null);
   const idRef = useRef(0);
@@ -118,23 +140,35 @@ export default function AdminChatScreen({ me }) {
   const lpTimer = useRef(null);
   const lpFired = useRef(false);
 
-  const activeModel = models.find((m) => m.id === model) || null;
-  const modelLabel = activeModel?.label || prettyTitle({ id: model }) || "Model";
+  const pcfg = platforms || FALLBACK_PLATFORMS;
+  // The selected OpenRouter model (only the openrouter path carries vision metadata).
+  const activeOrModel = platform === "openrouter" ? models.find((m) => m.id === model) || null : null;
+  const providerLabel = pcfg[platform]?.label || platform;
+  const modelLabel =
+    platform === "openrouter"
+      ? activeOrModel?.label || prettyTitle({ id: model }) || "Model"
+      : pcfg[platform]?.models?.find((m) => m.id === model)?.label || "Model";
   const slashTyping = input.startsWith("/") && !input.includes(" ");
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading, pending]);
 
-  // Load models + chat list once unlocked.
+  // Load platforms + OpenRouter models + chat list once unlocked.
   useEffect(() => {
     if (me?.adminChatUnlocked !== true) return;
     let cancelled = false;
+    api("/api/admin/platforms")
+      .then((d) => {
+        if (!cancelled && d && typeof d === "object" && d.groq) setPlatforms(d);
+        else if (!cancelled) setPlatforms(FALLBACK_PLATFORMS);
+      })
+      .catch(() => {
+        if (!cancelled) setPlatforms(FALLBACK_PLATFORMS);
+      });
     api("/api/admin/models")
       .then((d) => {
-        if (cancelled || !Array.isArray(d.models) || !d.models.length) return;
-        setModels(d.models);
-        setModel((cur) => cur || d.models[0].id);
+        if (!cancelled && Array.isArray(d.models)) setModels(d.models);
       })
       .catch(() => {});
     api("/api/admin/chats")
@@ -163,14 +197,12 @@ export default function AdminChatScreen({ me }) {
   }
 
   // ── Navigation between list and chat ──
+  // A new chat opens as a normal empty chat at the default selection.
   function openNewChat() {
-    sheetModeRef.current = "new";
-    setShowModelSheet(true);
-  }
-
-  function startNewChat(mId) {
     setActiveChatId(null);
-    setModel(mId);
+    setPlatform(DEFAULT_SEL.platform);
+    setModel(DEFAULT_SEL.model);
+    setEffort(DEFAULT_SEL.effort);
     setRepo(null);
     setMessages([]);
     setPending([]);
@@ -185,7 +217,9 @@ export default function AdminChatScreen({ me }) {
       const d = await api(`/api/admin/chats/${id}/messages`);
       setMessages(Array.isArray(d.messages) ? d.messages.map(mapMsg) : []);
       setActiveChatId(id);
+      setPlatform(d.platform || "openrouter");
       if (d.model) setModel(d.model);
+      setEffort(d.effort ?? null);
       setRepo(d.repo || null);
       setPending([]);
       setView("chat");
@@ -210,9 +244,12 @@ export default function AdminChatScreen({ me }) {
     });
   }
 
-  function onModelSelect(mId) {
-    if (sheetModeRef.current === "new") startNewChat(mId);
-    else setModel(mId);
+  // Selection changed in the header dropdowns. Persists with the next message
+  // (the send endpoint stores it per chat); also restored from the chat on open.
+  function onSelectionChange(next) {
+    setPlatform(next.platform);
+    setModel(next.model);
+    setEffort(next.effort);
   }
 
   // ── Long-press to delete in the list ──
@@ -271,7 +308,14 @@ export default function AdminChatScreen({ me }) {
     const text = input.trim();
     if ((!text && pending.length === 0) || loading) return;
 
-    if (pending.some((a) => a.kind === "image") && activeModel && activeModel.vision === false) {
+    // OpenRouter models may be text-only; Groq auto-routes images to its vision
+    // model and Gemini reads them natively, so only guard the openrouter path.
+    if (
+      pending.some((a) => a.kind === "image") &&
+      platform === "openrouter" &&
+      activeOrModel &&
+      activeOrModel.vision === false
+    ) {
       setError("This model can't read images — pick a vision model.");
       return;
     }
@@ -300,7 +344,7 @@ export default function AdminChatScreen({ me }) {
       if (!chatId) {
         const created = await api("/api/admin/chats", {
           method: "POST",
-          body: JSON.stringify({ model }),
+          body: JSON.stringify(platform === "openrouter" ? { model } : {}),
         });
         chatId = created.id;
         setActiveChatId(chatId);
@@ -313,15 +357,26 @@ export default function AdminChatScreen({ me }) {
       }));
       const data = await api(`/api/admin/chats/${chatId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content: text, attachments, model }),
+        body: JSON.stringify({ content: text, attachments, platform, model, effort }),
       });
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply, atts: [] }]);
+      if (data.platform) setPlatform(data.platform);
       if (data.model) setModel(data.model);
+      if (data.effort !== undefined) setEffort(data.effort);
       if (data.repo !== undefined) setRepo(data.repo || null);
       refreshChats();
     } catch (e) {
-      if (e.status === 403) setError("Access revoked.");
+      const rateLimited = e.status === 429 || e.data?.error === "rate_limit";
+      if (rateLimited) {
+        // Don't lose the typed message: drop the optimistic bubble, restore
+        // the text + attachments, and show an inline notice.
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(text);
+        setPending(sendAtts);
+        setError("Rate limited — try again or switch model / effort.");
+      } else if (e.status === 403) setError("Access revoked.");
       else if (e.status === 413) setError("Attachment too large.");
+      else if (e.data?.detail) setError(e.data.detail);
       else if (e.data?.message) setError(e.data.message);
       else setError(e.message || "Chat failed. Try again.");
     } finally {
@@ -395,14 +450,6 @@ export default function AdminChatScreen({ me }) {
             </button>
           ))}
         </div>
-
-        <ModelChatSheet
-          isOpen={showModelSheet}
-          models={models}
-          currentModel={model}
-          onSelect={onModelSelect}
-          onClose={() => setShowModelSheet(false)}
-        />
       </div>
     );
   }
@@ -422,19 +469,9 @@ export default function AdminChatScreen({ me }) {
         >
           <IconArrowLeft size={20} stroke={2} />
         </button>
-        <button
-          type="button"
-          className="ac-title ac-model-btn"
-          onClick={() => {
-            sheetModeRef.current = "switch";
-            setShowModelSheet(true);
-          }}
-          aria-haspopup="dialog"
-        >
-          <span className="ac-model-label">{modelLabel}</span>
-          {activeModel?.vision && <span className="si-tag">vision</span>}
-          <IconChevronDown size={12} stroke={2.5} />
-        </button>
+        <span className="ac-title-text">
+          Chat<span className="ac-badge">admin</span>
+        </span>
         <button
           type="button"
           className="ac-iconbtn"
@@ -444,6 +481,15 @@ export default function AdminChatScreen({ me }) {
           <IconPencilPlus size={20} stroke={1.8} />
         </button>
       </header>
+
+      <ModelSelectorBar
+        platforms={pcfg}
+        orModels={models}
+        platform={platform}
+        model={model}
+        effort={effort}
+        onChange={onSelectionChange}
+      />
 
       {repo && (
         <div className="ac-repo-bar">
@@ -458,30 +504,16 @@ export default function AdminChatScreen({ me }) {
           <div className="ac-empty">
             <div className="ace-model">
               {modelLabel}
-              {activeModel?.vision && <span className="si-tag">vision</span>}
+              <span className="ace-provider">{providerLabel}</span>
             </div>
-            {activeModel?.blurb && <div className="ace-blurb">{activeModel.blurb}</div>}
-            {activeModel?.tags?.length > 0 && (
+            {activeOrModel?.blurb && <div className="ace-blurb">{activeOrModel.blurb}</div>}
+            {activeOrModel?.tags?.length > 0 && (
               <div className="ace-tags">
-                {activeModel.tags.map((t) => (
+                {activeOrModel.tags.map((t) => (
                   <span key={t} className="ace-tag">
                     {t}
                   </span>
                 ))}
-              </div>
-            )}
-            {(activeModel?.best || activeModel?.weak) && (
-              <div className="ace-info">
-                {activeModel.best && (
-                  <div className="ace-line">
-                    <span className="ace-k">Best for</span> {activeModel.best}
-                  </div>
-                )}
-                {activeModel.weak && (
-                  <div className="ace-line">
-                    <span className="ace-k">Watch out</span> {activeModel.weak}
-                  </div>
-                )}
               </div>
             )}
             <div className="ace-cmds">
@@ -628,14 +660,6 @@ export default function AdminChatScreen({ me }) {
       <input ref={photoRef} type="file" accept="image/*" hidden onChange={onPick} />
       <input ref={fileRef} type="file" accept={FILE_ACCEPT} hidden onChange={onPick} />
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={onPick} />
-
-      <ModelChatSheet
-        isOpen={showModelSheet}
-        models={models}
-        currentModel={model}
-        onSelect={onModelSelect}
-        onClose={() => setShowModelSheet(false)}
-      />
     </div>
   );
 }
