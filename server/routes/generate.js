@@ -6,7 +6,8 @@ import { isAdmin } from "../services/admin.js";
 import {
   getUser,
   hasPaidPurchase,
-  deductCredits,
+  spendCreditsAtomic,
+  refundCredits,
   recordUsage,
   GENERATION_COST,
 } from "../services/users.js";
@@ -37,17 +38,22 @@ router.post("/", validateInitData, async (req, res) => {
     }
   }
 
-  // 3. Credit check (admins bypass).
+  // 3. SECURITY: deduct BEFORE generation (atomic credits >= cost), refund on
+  // failure. Check-then-deduct-after allowed concurrent requests to burn
+  // provider API money with funds for only one generation.
   const cost = GENERATION_COST[strategy] ?? 50;
-  const { credits } = getUser(telegramId);
-  if (!admin && credits < cost) {
-    return res.status(402).json({
-      error: "insufficient_credits",
-      credits,
-      required: cost,
-    });
+  if (!admin) {
+    const spend = spendCreditsAtomic(telegramId, cost);
+    if (!spend.ok) {
+      return res.status(402).json({
+        error: "insufficient_credits",
+        credits: spend.credits,
+        required: cost,
+      });
+    }
   }
 
+  let result;
   try {
     // 5. Repo context: live GitHub summary or the hardcoded fixture.
     const summary = hasRepo ? await fetchRepoSummary(repoUrl) : repoSummary;
@@ -56,35 +62,24 @@ router.post("/", validateInitData, async (req, res) => {
     //    then generate via the tier-aware rotating provider pool.
     const prompt = buildPrompt(strategy, { id: "user", task }, summary);
     const tier = admin ? "admin" : hasPaidPurchase(telegramId) ? "paid" : "free";
-    const result = await callGemini(prompt, strategy, { tier });
-
-    // 7. Deduct credits for the successful generation (admins are not metered,
-    //    but their generations are still recorded so History works for them).
-    let creditResult;
-    if (admin) {
-      recordUsage(telegramId, strategy, task, result, 0);
-      creditResult = { ok: true, credits, spent: 0 };
-    } else {
-      creditResult = deductCredits(telegramId, strategy, task, result);
-    }
-    if (!creditResult.ok) {
-      return res.status(402).json({
-        error: "insufficient_credits",
-        credits: creditResult.credits,
-        required: creditResult.required,
-      });
-    }
-
-    return res.json({
-      result,
-      credits: creditResult.credits,
-      spent: creditResult.spent,
-      isAdmin: admin,
-    });
+    result = await callGemini(prompt, strategy, { tier });
   } catch (err) {
     console.error("[Generate] failed:", err);
+    if (!admin) refundCredits(telegramId, cost);
     return res.status(500).json({ error: "generation_failed" });
   }
+
+  // 7. Log usage (admins are not metered, but their generations still show in
+  // History). Credits were already deducted atomically above.
+  recordUsage(telegramId, strategy, task, result, admin ? 0 : cost);
+  const { credits } = getUser(telegramId);
+
+  return res.json({
+    result,
+    credits,
+    spent: admin ? 0 : cost,
+    isAdmin: admin,
+  });
 });
 
 export default router;

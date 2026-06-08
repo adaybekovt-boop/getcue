@@ -71,6 +71,39 @@ if (!userColumns.some((column) => column.name === "admin_chat_unlocked")) {
   db.exec("ALTER TABLE users ADD COLUMN admin_chat_unlocked INTEGER NOT NULL DEFAULT 0");
 }
 
+// Admin multi-chat (chats + messages). One-time switch from any earlier schema:
+// if the new admin_chats table is absent, (re)create the pair fresh.
+const hasAdminChats = db
+  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_chats'")
+  .get();
+if (!hasAdminChats) {
+  db.exec(`
+    DROP TABLE IF EXISTS admin_chat_messages;
+    DROP TABLE IF EXISTS admin_chat_sessions;
+
+    CREATE TABLE admin_chats (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id INTEGER NOT NULL,
+      title       TEXT NOT NULL DEFAULT 'New chat',
+      model       TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE TABLE admin_chat_messages (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id          INTEGER NOT NULL,
+      role             TEXT NOT NULL,
+      content          TEXT NOT NULL DEFAULT '',
+      attachments_json TEXT,
+      created_at       INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+
+    CREATE INDEX idx_admin_chats_tid ON admin_chats(telegram_id, updated_at);
+    CREATE INDEX idx_admin_chat_msgs_cid ON admin_chat_messages(chat_id, id);
+  `);
+}
+
 db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_log_payment_id
   ON purchase_log(payment_id)

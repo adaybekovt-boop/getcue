@@ -72,6 +72,7 @@ button {
 }
 
 .screen {
+  position: relative; /* anchors absolutely-positioned menus (e.g. ac-model-menu) */
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -143,6 +144,14 @@ button {
 
 .credits-badge .star {
   color: var(--orange);
+}
+
+/* Low balance: pull attention to the top-up entry point. */
+.credits-badge.low {
+  border-color: var(--orange-bd);
+  background: var(--orange-bg);
+  color: var(--orange);
+  font-weight: 600;
 }
 
 .header-right {
@@ -675,6 +684,139 @@ button {
   color: #fff;
 }
 
+/* =========================================================================
+   Trending style presets (Image → Prompt)
+   ========================================================================= */
+
+.preset-section {
+  flex-shrink: 0;
+  margin-top: 14px;
+}
+
+.preset-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.preset-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.preset-hint {
+  font-size: 11px;
+  color: var(--text2);
+}
+
+/* Horizontal scroll strip; hide the scrollbar for a clean mobile feel. */
+.preset-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin: 0 -16px;
+  padding-left: 16px;
+  padding-right: 16px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.preset-row::-webkit-scrollbar {
+  display: none;
+}
+
+.preset-card {
+  flex: 0 0 auto;
+  width: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  scroll-snap-align: start;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.preset-thumb {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px solid transparent;
+  transition: border-color 160ms var(--ease-out), transform 160ms var(--ease-out);
+}
+
+.preset-card:active .preset-thumb {
+  transform: scale(0.96);
+}
+
+.preset-card.active .preset-thumb {
+  border-color: var(--text);
+  box-shadow: 0 0 0 3px var(--orange-bg);
+}
+
+.preset-emoji {
+  font-size: 38px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.35));
+}
+
+.preset-tag {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.preset-card.active .preset-thumb::after {
+  content: "✓";
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--orange);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.preset-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preset-card.active .preset-name {
+  color: var(--text);
+}
+
 /* Empty upload state */
 .upload-zone {
   flex: 1;
@@ -853,6 +995,25 @@ button {
   cursor: pointer;
 }
 
+.ac-clear {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text3);
+  cursor: pointer;
+  transition: color 140ms var(--ease-out);
+}
+
+.ac-clear:active {
+  color: var(--text);
+}
+
 .ac-title {
   flex: 1;
   display: flex;
@@ -866,6 +1027,388 @@ button {
 
 .ac-title .ac-lock {
   color: var(--text2);
+}
+
+/* Model selector in the chat header (tap title → menu). */
+.ac-model-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ac-model-menu {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 48px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: var(--r-md);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.ac-model-menu .ac-attach-item.active {
+  color: var(--orange);
+  background: var(--orange-bg);
+  border-radius: var(--r-sm);
+}
+
+.ac-model-menu .acm-label {
+  flex: 1;
+  text-align: left;
+}
+
+.ac-model-menu .acm-eye {
+  color: var(--text2);
+}
+
+/* Slash-command hint row above the input. */
+.ac-slash-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+
+.ac-slash-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ac-slash-item .acs-cmd {
+  font-weight: 600;
+  color: var(--orange);
+}
+
+.ac-slash-item .acs-hint {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Model name in the chat header button — truncate long names. */
+.ac-model-label {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Searchable free-model picker sheet */
+.model-search {
+  width: 100%;
+  height: 42px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  outline: none;
+}
+
+.model-search::placeholder {
+  color: var(--text3);
+}
+
+.model-search:focus {
+  border-color: var(--orange-bd);
+}
+
+.model-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.model-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text3);
+}
+
+/* Admin chat header: static title + action buttons */
+.ac-title-text {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ac-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ac-iconbtn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--text2);
+  cursor: pointer;
+  transition: color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+
+.ac-iconbtn:active {
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* Dimmed model banner — selector + strengths/weaknesses */
+.ac-model-banner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ac-model-banner:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.amb-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.amb-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.amb-blurb {
+  font-size: 11px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.amb-chev {
+  flex: none;
+  color: var(--text3);
+}
+
+/* vision tag stays next to the name (override the picker's margin-left:auto) */
+.si-name .si-tag,
+.amb-name .si-tag {
+  margin-left: 4px;
+}
+
+/* History (conversations) sheet */
+.hist-list {
+  max-height: 56vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.hist-row {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 6px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.hist-row.active {
+  border-color: var(--orange-bd);
+  background: var(--orange-bg);
+}
+
+.hist-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hist-title {
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-meta {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.hist-del {
+  flex: none;
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-left: 1px solid var(--border);
+  color: var(--text3);
+  cursor: pointer;
+}
+
+.hist-del:active {
+  color: var(--orange);
+}
+
+/* Admin chat list (history of chats) */
+.chat-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 140ms var(--ease-out), background 140ms var(--ease-out);
+}
+
+.chat-row:active {
+  background: var(--surface2);
+}
+
+.chat-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-row-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-row-preview {
+  font-size: 12px;
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-row-when {
+  flex: none;
+  font-size: 11px;
+  color: var(--text3);
+  padding-top: 1px;
+}
+
+.chat-empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text3);
+  text-align: center;
+}
+
+.chat-empty .ce-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.chat-empty .ce-sub {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.chat-empty .ce-new {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  background: var(--orange);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .ac-badge {
@@ -897,10 +1440,65 @@ button {
 
 .ac-empty {
   margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 300px;
   text-align: center;
   font-size: 13px;
   line-height: 1.6;
   color: var(--text3);
+}
+
+.ace-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ace-blurb {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+.ace-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.ace-tag {
+  font-size: 11px;
+  color: var(--text2);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.ace-info {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text2);
+}
+
+.ace-line .ace-k {
+  display: inline-block;
+  min-width: 64px;
+  font-weight: 600;
+  color: var(--orange);
 }
 
 .ac-msg {
@@ -1656,6 +2254,7 @@ button {
 }
 
 .pack-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1665,6 +2264,120 @@ button {
   background: var(--surface);
   border: 1px solid var(--border);
   text-align: center;
+}
+
+/* Featured pack: stronger border to anchor the eye. */
+.pack-card.featured {
+  border-color: var(--orange-bd);
+}
+
+.pack-badge {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--orange);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.pack-meta {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.pack-bonus {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--orange);
+}
+
+.pack-old {
+  margin-left: 6px;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+/* First-purchase bonus banner on the Pro screen. */
+.first-bonus-banner {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-bd);
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* One-time welcome banner (Generate screen). */
+.welcome-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--orange-bg);
+  border: 1px solid var(--orange-bd);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.welcome-close {
+  background: none;
+  border: none;
+  color: var(--text3);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* Out-of-credits paywall card (replaces the thin error banner). */
+.paywall-card {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--orange-bd);
+  text-align: center;
+}
+
+.paywall-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.paywall-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.paywall-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 20px;
+  border-radius: var(--r-pill);
+  background: var(--orange);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.paywall-cta .star {
+  color: #fff;
 }
 
 .pack-card.wide {

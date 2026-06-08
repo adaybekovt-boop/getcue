@@ -4,7 +4,7 @@
 import { Router } from "express";
 import { validateInitData } from "../middleware/validateInitData.js";
 import { isAdmin } from "../services/admin.js";
-import { getUser, deductCredits, recordUsage } from "../services/users.js";
+import { getUser, spendCreditsAtomic, refundCredits, recordUsage } from "../services/users.js";
 import { IMAGE_STRATEGY_CARDS } from "../../src/config/imageStrategyCards.js";
 import { generateImagePrompt } from "../services/imagePrompt.js";
 
@@ -33,46 +33,40 @@ router.post("/", validateInitData, async (req, res) => {
     return res.status(400).json({ error: "invalid_task" });
   }
 
-  // 2. Credit check (admins bypass).
-  const { credits } = getUser(telegramId);
-  if (!admin && credits < COST) {
-    return res.status(402).json({ error: "insufficient_credits", credits, required: COST });
+  // 2. SECURITY: deduct atomically BEFORE generation; refund on failure.
+  if (!admin) {
+    const spend = spendCreditsAtomic(telegramId, COST);
+    if (!spend.ok) {
+      return res
+        .status(402)
+        .json({ error: "insufficient_credits", credits: spend.credits, required: COST });
+    }
   }
 
+  let prompt;
   try {
     // 3. Generate via Gemma 4 vision.
-    const prompt = await generateImagePrompt({
+    prompt = await generateImagePrompt({
       imageBase64,
       targetModel,
       task: task.trim(),
     });
-
-    // 4. Deduct (admins recorded but not metered) and log to history.
-    let creditResult;
-    if (admin) {
-      recordUsage(telegramId, targetModel, task.trim(), prompt, 0);
-      creditResult = { ok: true, credits, spent: 0 };
-    } else {
-      creditResult = deductCredits(telegramId, targetModel, task.trim(), prompt, COST);
-    }
-    if (!creditResult.ok) {
-      return res.status(402).json({
-        error: "insufficient_credits",
-        credits: creditResult.credits,
-        required: COST,
-      });
-    }
-
-    return res.json({
-      prompt,
-      creditsLeft: creditResult.credits,
-      spent: creditResult.spent,
-      isAdmin: admin,
-    });
   } catch (err) {
     console.error("[ImagePrompt] failed:", err.message);
+    if (!admin) refundCredits(telegramId, COST);
     return res.status(500).json({ error: "generation_failed" });
   }
+
+  // 4. Log usage (credits already deducted above).
+  recordUsage(telegramId, targetModel, task.trim(), prompt, admin ? 0 : COST);
+  const { credits } = getUser(telegramId);
+
+  return res.json({
+    prompt,
+    creditsLeft: credits,
+    spent: admin ? 0 : COST,
+    isAdmin: admin,
+  });
 });
 
 export default router;

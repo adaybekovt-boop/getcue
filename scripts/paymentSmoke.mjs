@@ -84,6 +84,7 @@ assert.throws(
 );
 
 process.env.WEBHOOK_SECRET = "";
+process.env.GEMINI_API_KEY ||= "AIzaSmokeTestKeyOnlyForImport000000000000";
 const { default: app } = await import("../server/index.js");
 
 const server = app.listen(0);
@@ -119,7 +120,7 @@ try {
     body: JSON.stringify(webhookPayload),
   });
   assert.equal(withSecret.status, 200);
-  assert.equal(getCredits(777), 1650);
+  assert.equal(getCredits(777), 2400);
 
   const duplicate = await fetch(url, {
     method: "POST",
@@ -130,7 +131,7 @@ try {
     body: JSON.stringify(webhookPayload),
   });
   assert.equal(duplicate.status, 200);
-  assert.equal(getCredits(777), 1650);
+  assert.equal(getCredits(777), 2400);
 } finally {
   await new Promise((resolve) => server.close(resolve));
 }

@@ -59,6 +59,11 @@ export function validateInitData(req, res, next) {
   } catch {
     return res.status(401).json({ error: "Invalid initData" });
   }
+  // JSON.parse(null) -> null without throwing; require a numeric id.
+  const uid = req.telegramUser && Number(req.telegramUser.id);
+  if (!uid || !Number.isFinite(uid) || uid <= 0) {
+    return res.status(401).json({ error: "Invalid initData" });
+  }
 
   next();
 }

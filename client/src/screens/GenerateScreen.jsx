@@ -25,11 +25,30 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
   const [error, setError] = useState(null);
   const [showModelSheet, setShowModelSheet] = useState(false);
   const [copied, setCopied] = useState(false);
+  // One-time welcome banner: tells new users they already have free credits.
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      return !localStorage.getItem("cue_welcome_seen");
+    } catch {
+      return false;
+    }
+  });
 
   const isAdmin = !!(me && me.isAdmin);
   const credits = me ? me.credits : null;
+  const firstBonus = !!(me && me.firstPurchaseBonus) && !isAdmin;
+  const lowBalance = !isAdmin && typeof credits === "number" && credits < 100;
   const model = MODEL_BY_STRATEGY[strategy];
   const ModelIcon = model.Icon;
+
+  function dismissWelcome() {
+    setShowWelcome(false);
+    try {
+      localStorage.setItem("cue_welcome_seen", "1");
+    } catch {
+      /* storage unavailable */
+    }
+  }
 
   // One input state = one result. Changing any input clears the previous result.
   useEffect(() => {
@@ -98,9 +117,9 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
       <header className="cue-header">
         <span className="cue-logo">Cue</span>
         <div className="header-right">
-          <Link to="/pro" className="credits-badge">
+          <Link to="/pro" className={"credits-badge" + (lowBalance ? " low" : "")}>
             <IconStarFilled className="star" size={12} />
-            {isAdmin ? "Admin ∞" : `${credits ?? "…"} cr`}
+            {isAdmin ? "Admin ∞" : lowBalance ? `${credits} · Top up` : `${credits ?? "…"} cr`}
           </Link>
           <Link to="/settings" className="profile-avatar" aria-label="Profile">
             <Avatar user={tgUser} size={36} />
@@ -109,6 +128,17 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
       </header>
 
       <div className="screen-content">
+        {showWelcome && !isAdmin && (
+          <div className="welcome-banner">
+            <span>
+              🎁 You start with <b>150 free credits</b> — enough for 3 prompts. Try it now.
+            </span>
+            <button type="button" className="welcome-close" onClick={dismissWelcome}>
+              ✕
+            </button>
+          </div>
+        )}
+
         <div className="task-block">
           <textarea
             className="task-textarea"
@@ -138,18 +168,24 @@ export default function GenerateScreen({ me, setCredits, onGenerated }) {
           {!repoUrl.trim() && <span className="gh-badge">optional</span>}
         </label>
 
-        {error && (
+        {error && error !== "insufficient_credits" && (
           <div className="error-banner">
-            <span>
-              {error === "insufficient_credits"
-                ? "Not enough credits for this model."
-                : "Generation failed. Please try again."}
-            </span>
-            {error === "insufficient_credits" && (
-              <Link to="/pro" className="link">
-                Get credits →
-              </Link>
-            )}
+            <span>Generation failed. Please try again.</span>
+          </div>
+        )}
+
+        {error === "insufficient_credits" && (
+          <div className="paywall-card">
+            <div className="paywall-title">Out of credits</div>
+            <div className="paywall-sub">
+              {firstBonus
+                ? "Get +50% bonus credits on your first purchase — from just 10 Stars."
+                : "Top up to keep generating — from just 10 Stars."}
+            </div>
+            <Link to="/pro" className="paywall-cta">
+              <IconStarFilled className="star" size={14} />
+              {firstBonus ? "Claim +50% bonus" : "Get credits"}
+            </Link>
           </div>
         )}
 

@@ -16,6 +16,7 @@ import { tgUser } from "../tgUser.js";
 import Avatar from "../components/Avatar.jsx";
 import ImageTargetSheet from "../components/ImageTargetSheet.jsx";
 import { IMAGE_MODEL_BY_ID, iconForType } from "../imageModels.js";
+import { IMAGE_PRESETS } from "../imagePresets.js";
 
 const COST = 100;
 const MAX_TASK = 2000;
@@ -32,6 +33,7 @@ export default function ImagePromptScreen({ me, setCredits }) {
   const [copied, setCopied] = useState(false);
   const [drawing, setDrawing] = useState(false);
   const [showSheet, setShowSheet] = useState(false);
+  const [activePreset, setActivePreset] = useState(null);
 
   const fileRef = useRef(null);
   const imgRef = useRef(null);
@@ -48,6 +50,17 @@ export default function ImagePromptScreen({ me, setCredits }) {
     setResult(null);
     setError(null);
   }, [imageSrc, task, targetModel]);
+
+  // Keep the annotation canvas locked to the rendered image size so it never
+  // drifts or shifts the layout when the viewport changes (e.g. keyboard open).
+  useEffect(() => {
+    if (!imageSrc || typeof ResizeObserver === "undefined") return undefined;
+    const img = imgRef.current;
+    if (!img) return undefined;
+    const ro = new ResizeObserver(() => syncCanvas());
+    ro.observe(img);
+    return () => ro.disconnect();
+  }, [imageSrc]);
 
   // --- File upload ---
   function onFile(e) {
@@ -78,17 +91,42 @@ export default function ImagePromptScreen({ me, setCredits }) {
     setResult(null);
   }
 
+  // Tap a trend card → prefill the brief + recommended model. Tap again to clear.
+  function applyPreset(preset) {
+    if (activePreset === preset.id) {
+      setActivePreset(null);
+      setTask("");
+      return;
+    }
+    setActivePreset(preset.id);
+    setTask(preset.task);
+    if (preset.model && IMAGE_MODEL_BY_ID[preset.model]) {
+      setTargetModel(preset.model);
+    }
+  }
+
   // --- Canvas sizing + annotation drawing ---
   function syncCanvas() {
     const img = imgRef.current;
     const c = canvasRef.current;
     if (!img || !c) return;
-    const w = img.clientWidth;
-    const h = img.clientHeight;
-    if (!w || !h) return;
-    if (c.width !== w || c.height !== h) {
-      c.width = w;
-      c.height = h; // resizing clears the canvas (fresh image = no strokes)
+    const w = Math.round(img.clientWidth);
+    const h = Math.round(img.clientHeight);
+    if (!w || !h || (c.width === w && c.height === h)) return;
+    // Preserve any existing annotation, rescaled to the new size, so the canvas
+    // can re-match the image (e.g. on a viewport change) without losing strokes
+    // or drifting out of alignment.
+    let prev = null;
+    if (c.width && c.height) {
+      prev = document.createElement("canvas");
+      prev.width = c.width;
+      prev.height = c.height;
+      prev.getContext("2d").drawImage(c, 0, 0);
+    }
+    c.width = w;
+    c.height = h;
+    if (prev) {
+      c.getContext("2d").drawImage(prev, 0, 0, prev.width, prev.height, 0, 0, w, h);
     }
   }
 
@@ -267,13 +305,40 @@ export default function ImagePromptScreen({ me, setCredits }) {
           </div>
         )}
 
+        {/* Trending style presets */}
+        <div className="preset-section">
+          <div className="preset-head">
+            <span className="preset-title">Trending styles</span>
+            <span className="preset-hint">Tap to apply</span>
+          </div>
+          <div className="preset-row">
+            {IMAGE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={"preset-card" + (activePreset === p.id ? " active" : "")}
+                onClick={() => applyPreset(p)}
+              >
+                <span className="preset-thumb" style={{ background: p.gradient }}>
+                  <span className="preset-emoji">{p.emoji}</span>
+                  {p.tag && <span className="preset-tag">{p.tag}</span>}
+                </span>
+                <span className="preset-name">{p.title}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Task input */}
         <textarea
           className="img-task"
           placeholder="Describe what you want to create..."
           value={task}
           maxLength={MAX_TASK}
-          onChange={(e) => setTask(e.target.value)}
+          onChange={(e) => {
+            setTask(e.target.value);
+            if (activePreset) setActivePreset(null);
+          }}
         />
 
         {error && (

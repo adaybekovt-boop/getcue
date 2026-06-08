@@ -8,6 +8,10 @@ import {
 import WebApp from "@twa-dev/sdk";
 import { api } from "../api.js";
 
+// Per-pack marketing badges (conversion anchors).
+const PACK_BADGES = { pack_50: "Most popular", pack_200: "Best value" };
+const PROMPT_COST = 50; // base cost of one standard generation
+
 export default function ProScreen({ me, refreshMe }) {
   const navigate = useNavigate();
   const [status, setStatus] = useState(null);
@@ -16,6 +20,7 @@ export default function ProScreen({ me, refreshMe }) {
   const isAdmin = !!(me && me.isAdmin);
   const credits = me ? me.credits : null;
   const packages = (me && me.packages) || [];
+  const firstBonus = !!(me && me.firstPurchaseBonus) && !isAdmin;
 
   async function buy(pkg) {
     setStatus(null);
@@ -73,20 +78,36 @@ export default function ProScreen({ me, refreshMe }) {
           </div>
         </div>
 
+        {firstBonus && (
+          <div className="first-bonus-banner">
+            🎁 <b>+50% bonus</b> on your first purchase — any package
+          </div>
+        )}
+
         <div className="pack-grid">
           {packages.map((pkg) => {
             const wide = pkg.id === "pack_200";
+            const badge = PACK_BADGES[pkg.id];
+            const shownCredits = firstBonus
+              ? Math.round(pkg.credits * 1.5)
+              : pkg.credits;
+            const prompts = Math.floor(shownCredits / PROMPT_COST);
             if (wide) {
               return (
-                <div key={pkg.id} className="pack-card wide">
+                <div key={pkg.id} className={"pack-card wide" + (badge ? " featured" : "")}>
+                  {badge && <span className="pack-badge">{badge}</span>}
                   <div className="pack-info">
                     <span className="pack-stars">
                       <IconStarFilled className="star" size={20} />
                       {pkg.stars}
                     </span>
                     <span className="pack-credits">
-                      {pkg.credits.toLocaleString()} credits
+                      {shownCredits.toLocaleString()} credits
+                      {firstBonus && (
+                        <s className="pack-old">{pkg.credits.toLocaleString()}</s>
+                      )}
                     </span>
+                    <span className="pack-meta">≈ {prompts} prompts</span>
                   </div>
                   <button
                     className="buy-btn"
@@ -99,15 +120,22 @@ export default function ProScreen({ me, refreshMe }) {
               );
             }
             return (
-              <div key={pkg.id} className="pack-card">
+              <div key={pkg.id} className={"pack-card" + (badge ? " featured" : "")}>
+                {badge && <span className="pack-badge">{badge}</span>}
                 <span className="pack-stars">
                   <IconStarFilled className="star" size={18} />
                   {pkg.stars}
                 </span>
                 <span className="pack-credits">
-                  {pkg.credits.toLocaleString()} credits
+                  {shownCredits.toLocaleString()} credits
+                  {firstBonus && (
+                    <s className="pack-old">{pkg.credits.toLocaleString()}</s>
+                  )}
                 </span>
-                <span className="pack-price">{pkg.stars} Stars</span>
+                <span className="pack-meta">≈ {prompts} prompts</span>
+                {pkg.bonusPct > 0 && (
+                  <span className="pack-bonus">+{pkg.bonusPct}% value</span>
+                )}
                 <button
                   className="buy-btn"
                   disabled={buying === pkg.id}

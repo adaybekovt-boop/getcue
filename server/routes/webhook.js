@@ -1,7 +1,7 @@
 // Telegram webhook. Called by Telegram directly, so it uses Telegram's
 // optional secret-token header instead of Mini App initData.
 import { Router } from "express";
-import { addCredits } from "../services/users.js";
+import { addCredits, hasPaidPurchase, FIRST_PURCHASE_BONUS } from "../services/users.js";
 import {
   answerPreCheckout,
   parseInvoicePayload,
@@ -51,10 +51,18 @@ router.post("/telegram", async (req, res) => {
     const successfulPayment = update.message && update.message.successful_payment;
     if (successfulPayment) {
       const payment = validateSuccessfulPayment(successfulPayment);
+      // First-purchase bonus: +50% credits on the user's first paid package.
+      let creditsToAdd = payment.creditsToAdd;
+      if (payment.starsPaid > 0 && !hasPaidPurchase(payment.telegramId)) {
+        creditsToAdd = Math.round(creditsToAdd * (1 + FIRST_PURCHASE_BONUS));
+        console.log(
+          `[Payment] First-purchase bonus applied for ${payment.telegramId}: ${payment.creditsToAdd} -> ${creditsToAdd}`
+        );
+      }
       const creditResult = addCredits(
         payment.telegramId,
         payment.starsPaid,
-        payment.creditsToAdd,
+        creditsToAdd,
         payment.payload,
         payment.paymentId
       );

@@ -67,11 +67,17 @@ npm run client:build
 
 Stars packages live in `server/services/users.js`.
 
-Current package examples:
+Current packages (value per Star increases with size):
 
 - `pack_10`: 10 Stars -> 1500 credits
-- `pack_25`: 25 Stars -> 3500 credits
-- `pack_50`: 50 Stars -> 6000 credits
+- `pack_25`: 25 Stars -> 4000 credits (+7%)
+- `pack_50`: 50 Stars -> 8500 credits (+13%)
+- `pack_100`: 100 Stars -> 18000 credits (+20%)
+- `pack_200`: 200 Stars -> 40000 credits (+33%)
+
+The first paid purchase grants +50% extra credits (`FIRST_PURCHASE_BONUS`).
+Generation endpoints deduct credits atomically BEFORE calling the provider and
+refund on provider failure (closes the concurrent-spend race).
 
 Payment handling verifies:
 

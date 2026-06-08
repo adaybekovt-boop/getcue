@@ -3,13 +3,18 @@ import { repoSummary } from "../src/fixtures/repoSummary.js";
 import { strategyCards, strategyKeys } from "../src/config/strategyCards.js";
 import { IMAGE_STRATEGY_CARDS } from "../src/config/imageStrategyCards.js";
 
+// Value per Star must INCREASE with package size (drives average order value up).
+// bonusPct is informational for the client UI (vs the 150 cr/star base rate).
 const PACKAGES = [
-  { id: "pack_10", stars: 10, credits: 1500, label: "Starter" },
-  { id: "pack_25", stars: 25, credits: 3500, label: "Basic" },
-  { id: "pack_50", stars: 50, credits: 6000, label: "Standard" },
-  { id: "pack_100", stars: 100, credits: 10000, label: "Pro" },
-  { id: "pack_200", stars: 200, credits: 18000, label: "Max" },
+  { id: "pack_10", stars: 10, credits: 1500, label: "Starter", bonusPct: 0 },
+  { id: "pack_25", stars: 25, credits: 4000, label: "Basic", bonusPct: 7 },
+  { id: "pack_50", stars: 50, credits: 8500, label: "Standard", bonusPct: 13 },
+  { id: "pack_100", stars: 100, credits: 18000, label: "Pro", bonusPct: 20 },
+  { id: "pack_200", stars: 200, credits: 40000, label: "Max", bonusPct: 33 },
 ];
+
+// First paid purchase grants +50% extra credits (free→paid conversion lever).
+const FIRST_PURCHASE_BONUS = 0.5;
 
 const GENERATION_COST = {
   "claude-standard": 50,
@@ -42,6 +47,152 @@ const OPENROUTER_HEADERS = {
 const GPTOSS_MODEL = "openai/gpt-oss-120b";
 const KIMI_MODEL = "moonshotai/kimi-k2.6";
 const GEMMA_MODEL = "google/gemma-4-31b-it:free";
+
+// Admin-chat model registry — all routed through OpenRouter. Keep ids in sync
+// with the Express-side registry and the client model sheet.
+const ADMIN_CHAT_MODEL_LIST = [
+  {
+    id: "moonshotai/kimi-k2.6:free",
+    or: "moonshotai/kimi-k2.6:free",
+    label: "Kimi K2.6",
+    vision: true,
+    blurb: "Best all-rounder — agentic, coding & tool use. Reads images.",
+    best: "Coding, multi-step tasks, working with images & files.",
+    weak: "Can be slower on very long replies.",
+    tags: ["Agentic", "Coding", "Vision", "Tool use"],
+  },
+  {
+    id: "openai/gpt-oss-120b:free",
+    or: "openai/gpt-oss-120b:free",
+    label: "GPT-OSS 120B",
+    vision: false,
+    blurb: "Strong reasoning & coding. Text only.",
+    best: "Hard reasoning, math, clean code.",
+    weak: "No image input.",
+    tags: ["Reasoning", "Coding", "Text only"],
+  },
+  {
+    id: "openai/gpt-oss-20b:free",
+    or: "openai/gpt-oss-20b:free",
+    label: "GPT-OSS 20B",
+    vision: false,
+    blurb: "Fast & light — quick answers.",
+    best: "Quick questions, drafts, fast iteration.",
+    weak: "Weaker on hard / complex problems.",
+    tags: ["Fast", "Lightweight", "Text only"],
+  },
+  {
+    id: "google/gemma-4-31b-it:free",
+    or: GEMMA_MODEL,
+    label: "Gemma 4 31B",
+    vision: true,
+    blurb: "Balanced all-rounder that reads images.",
+    best: "General chat and reading images/screenshots.",
+    weak: "Mid-size — not the deepest reasoner.",
+    tags: ["Balanced", "Vision", "General"],
+  },
+  {
+    id: "meta-llama/llama-3.3-70b-instruct:free",
+    or: "meta-llama/llama-3.3-70b-instruct:free",
+    label: "Llama 3.3 70B",
+    vision: false,
+    blurb: "Reliable writing & general help. Text only.",
+    best: "Writing, summaries, everyday assistance.",
+    weak: "No images; not a coding specialist.",
+    tags: ["Writing", "General", "Text only"],
+  },
+  {
+    id: "qwen/qwen3-coder:free",
+    or: "qwen/qwen3-coder:free",
+    label: "Qwen3 Coder",
+    vision: false,
+    blurb: "Code specialist — repos & refactors.",
+    best: "Writing & refactoring code, whole repos.",
+    weak: "Weaker at casual chat; text only.",
+    tags: ["Coding", "Repos", "Text only"],
+  },
+  {
+    id: "qwen/qwen3-next-80b-a3b-instruct:free",
+    or: "qwen/qwen3-next-80b-a3b-instruct:free",
+    label: "Qwen3 Next 80B",
+    vision: false,
+    blurb: "Fast general assistant, long context.",
+    best: "Long documents and fast general answers.",
+    weak: "No image input.",
+    tags: ["Fast", "Long context", "General"],
+  },
+  {
+    id: "z-ai/glm-4.5-air:free",
+    or: "z-ai/glm-4.5-air:free",
+    label: "GLM 4.5 Air",
+    vision: false,
+    blurb: "Light, fast multilingual chat.",
+    best: "Multilingual chat, quick replies.",
+    weak: "Weaker at deep coding & reasoning.",
+    tags: ["Multilingual", "Fast", "Light"],
+  },
+  {
+    id: "nvidia/nemotron-3-super-120b-a12b:free",
+    or: "nvidia/nemotron-3-super-120b-a12b:free",
+    label: "Nemotron 3 Super",
+    vision: false,
+    blurb: "Strong reasoning, good speed/quality balance.",
+    best: "Reasoning with a sensible speed trade-off.",
+    weak: "No image input.",
+    tags: ["Reasoning", "Balanced", "Text only"],
+  },
+  {
+    id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    or: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    label: "Nemotron 3 Ultra",
+    vision: false,
+    blurb: "Deep reasoning & STEM (huge model).",
+    best: "Hardest reasoning, math & science.",
+    weak: "Slowest of the bunch; no images.",
+    tags: ["Deep reasoning", "STEM", "Slow"],
+  },
+  {
+    id: "nousresearch/hermes-3-llama-3.1-405b:free",
+    or: "nousresearch/hermes-3-llama-3.1-405b:free",
+    label: "Hermes 3 405B",
+    vision: false,
+    blurb: "Massive & steerable — long-form & roleplay.",
+    best: "Long-form writing, personas, steerability.",
+    weak: "Large & slower; no images.",
+    tags: ["Long-form", "Roleplay", "Huge"],
+  },
+  {
+    id: "nvidia/nemotron-nano-12b-v2-vl:free",
+    or: "nvidia/nemotron-nano-12b-v2-vl:free",
+    label: "Nemotron Nano VL",
+    vision: true,
+    blurb: "Small vision model — reads images, fast.",
+    best: "Quick image reading on a budget.",
+    weak: "Small — limited for hard text tasks.",
+    tags: ["Vision", "Small", "Fast"],
+  },
+];
+const ADMIN_CHAT_MODELS = Object.fromEntries(
+  ADMIN_CHAT_MODEL_LIST.map((model) => [model.id, model])
+);
+const ADMIN_CHAT_DEFAULT = ADMIN_CHAT_MODEL_LIST[0].id;
+const ADMIN_CHAT_TITLE_MAX = 60;
+
+// /plan command: deep-planning system prompt. The model must return a complete
+// execution plan where every step ships a ready-to-paste prompt.
+const PLAN_SYSTEM_PROMPT = `You are a senior software architect and planning engine.
+The user will describe a goal. Produce a COMPLETE, deeply-reasoned execution plan:
+
+1. Restate the goal and constraints in 2-3 lines.
+2. Architecture / approach decision with a one-line justification.
+3. Numbered build steps (8-20). For EVERY step include:
+   - What to do and why (1-2 lines).
+   - A ready-to-paste PROMPT for an AI coding assistant, in a fenced code block,
+     fully self-contained (context, requirements, edge cases, acceptance criteria).
+4. Risks and how each step mitigates them.
+5. Verification checklist.
+
+Be exhaustive and specific. No filler, no apologies. Use the user's language.`;
 const QWEN_MODEL = "qwen-max";
 const QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const PROMO_HITS = new Map();
@@ -65,6 +216,7 @@ export default {
         return json({
           telegramUser,
           credits: user.credits,
+          firstPurchaseBonus: !(await hasPaidPurchase(env.DB, telegramUser.id)),
           isAdmin: isAdmin(env, telegramUser.id),
           adminChatUnlocked:
             isAdmin(env, telegramUser.id) &&
@@ -139,6 +291,33 @@ export default {
         return await handleGenerateImagePrompt(request, env);
       }
 
+      if (url.pathname === "/api/admin/models" && request.method === "GET") {
+        return await handleAdminModels(request, env);
+      }
+
+      if (url.pathname === "/api/admin/chats" && request.method === "GET") {
+        return await handleAdminChatList(request, env);
+      }
+
+      if (url.pathname === "/api/admin/chats" && request.method === "POST") {
+        return await handleAdminChatCreate(request, env);
+      }
+
+      const chatMessagesMatch = url.pathname.match(/^\/api\/admin\/chats\/(\d+)\/messages$/);
+      if (chatMessagesMatch && request.method === "GET") {
+        return await handleAdminChatMessages(request, env, chatMessagesMatch[1]);
+      }
+
+      if (chatMessagesMatch && request.method === "POST") {
+        return await handleAdminChatSend(request, env, chatMessagesMatch[1]);
+      }
+
+      const chatMatch = url.pathname.match(/^\/api\/admin\/chats\/(\d+)$/);
+      if (chatMatch && request.method === "DELETE") {
+        return await handleAdminChatDelete(request, env, chatMatch[1]);
+      }
+
+      // Legacy endpoint kept for old cached clients.
       if (url.pathname === "/api/admin/chat" && request.method === "POST") {
         return await handleAdminChat(request, env);
       }
@@ -181,10 +360,22 @@ async function handleGenerate(request, env) {
     return json({ error: "invalid_repoUrl" }, 400);
   }
 
+  // Per-user rate limit: caps provider-API burn from request spam.
+  if (!admin && rateLimit(telegramUser.id, "gen", 8)) {
+    return json({ error: "rate_limited", message: "Too many requests. Slow down." }, 429);
+  }
+
+  // SECURITY: deduct BEFORE generation (atomic credits >= cost check), refund
+  // on failure. The old check-then-deduct-after order let N concurrent
+  // requests pass the balance check with funds for only one generation.
   const cost = GENERATION_COST[strategy] ?? 50;
-  const user = await getUser(env.DB, telegramUser.id);
-  if (!admin && user.credits < cost) {
-    return json({ error: "insufficient_credits", credits: user.credits, required: cost }, 402);
+  let spendOk = true;
+  if (!admin) {
+    const spend = await spendCreditsAtomic(env.DB, telegramUser.id, cost);
+    spendOk = spend.ok;
+    if (!spendOk) {
+      return json({ error: "insufficient_credits", credits: spend.credits, required: cost }, 402);
+    }
   }
 
   let result;
@@ -199,27 +390,23 @@ async function handleGenerate(request, env) {
     result = await generateText(env, prompt, tier);
   } catch (error) {
     console.error("[Generate] failed:", error);
+    if (!admin) await refundCredits(env.DB, telegramUser.id, cost);
     return json({ error: "generation_failed" }, 500);
   }
 
-  const creditResult = admin
-    ? await recordUsage(env.DB, telegramUser.id, strategy, task, result, 0)
-    : await deductCredits(env.DB, telegramUser.id, strategy, task, result);
-  if (!creditResult.ok) {
-    return json(
-      {
-        error: "insufficient_credits",
-        credits: creditResult.credits,
-        required: creditResult.required,
-      },
-      402
-    );
-  }
+  const creditResult = await recordUsage(
+    env.DB,
+    telegramUser.id,
+    strategy,
+    task,
+    result,
+    admin ? 0 : cost
+  );
 
   return json({
     result,
     credits: creditResult.credits,
-    spent: creditResult.spent,
+    spent: admin ? 0 : cost,
     isAdmin: admin,
   });
 }
@@ -243,12 +430,19 @@ async function handleGenerateImagePrompt(request, env) {
     return json({ error: "invalid_task" }, 400);
   }
 
-  const user = await getUser(env.DB, telegramUser.id);
-  if (!admin && user.credits < IMAGE_PROMPT_COST) {
-    return json(
-      { error: "insufficient_credits", credits: user.credits, required: IMAGE_PROMPT_COST },
-      402
-    );
+  if (!admin && rateLimit(telegramUser.id, "gen", 8)) {
+    return json({ error: "rate_limited", message: "Too many requests. Slow down." }, 429);
+  }
+
+  // Same deduct-first/refund-on-failure pattern as handleGenerate.
+  if (!admin) {
+    const spend = await spendCreditsAtomic(env.DB, telegramUser.id, IMAGE_PROMPT_COST);
+    if (!spend.ok) {
+      return json(
+        { error: "insufficient_credits", credits: spend.credits, required: IMAGE_PROMPT_COST },
+        402
+      );
+    }
   }
 
   let prompt;
@@ -256,29 +450,166 @@ async function handleGenerateImagePrompt(request, env) {
     prompt = await generateImagePrompt(env, imageBase64, targetModel, task.trim());
   } catch (error) {
     console.error("[ImagePrompt] failed:", error);
+    if (!admin) await refundCredits(env.DB, telegramUser.id, IMAGE_PROMPT_COST);
     return json({ error: "generation_failed" }, 500);
   }
 
-  const creditResult = admin
-    ? await recordUsage(env.DB, telegramUser.id, targetModel, task.trim(), prompt, 0)
-    : await deductCredits(env.DB, telegramUser.id, targetModel, task.trim(), prompt, IMAGE_PROMPT_COST);
-  if (!creditResult.ok) {
-    return json(
-      {
-        error: "insufficient_credits",
-        credits: creditResult.credits,
-        required: creditResult.required,
-      },
-      402
-    );
-  }
+  const creditResult = await recordUsage(
+    env.DB,
+    telegramUser.id,
+    targetModel,
+    task.trim(),
+    prompt,
+    admin ? 0 : IMAGE_PROMPT_COST
+  );
 
   return json({
     prompt,
     creditsLeft: creditResult.credits,
-    spent: creditResult.spent,
+    spent: admin ? 0 : IMAGE_PROMPT_COST,
     isAdmin: admin,
   });
+}
+
+async function requireAdminChatAccess(request, env) {
+  const telegramUser = await requireTelegramUser(request, env);
+  if (!isAdmin(env, telegramUser.id) || !(await isAdminChatUnlocked(env.DB, telegramUser.id))) {
+    return { error: json({ error: "forbidden" }, 403) };
+  }
+  return { telegramUser };
+}
+
+async function handleAdminModels(request, env) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  return json({ models: ADMIN_CHAT_MODEL_LIST });
+}
+
+async function handleAdminChatList(request, env) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  return json({ chats: await listAdminChats(env.DB, access.telegramUser.id) });
+}
+
+async function handleAdminChatCreate(request, env) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  const body = await readJson(request);
+  const model = ADMIN_CHAT_MODELS[body.model] ? body.model : ADMIN_CHAT_DEFAULT;
+  const title =
+    typeof body.title === "string" && body.title.trim()
+      ? body.title.trim().slice(0, ADMIN_CHAT_TITLE_MAX)
+      : "New chat";
+  const id = await createAdminChat(env.DB, access.telegramUser.id, model, title);
+  return json({ id, model, title });
+}
+
+async function handleAdminChatMessages(request, env, chatId) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  const chat = await getOwnedAdminChat(env.DB, access.telegramUser.id, chatId);
+  if (!chat) return json({ error: "not_found" }, 404);
+  return json({
+    messages: await getAdminChatMessages(env.DB, chat.id),
+    model: chat.model,
+    title: chat.title,
+  });
+}
+
+async function handleAdminChatDelete(request, env, chatId) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  await deleteAdminChat(env.DB, access.telegramUser.id, chatId);
+  return json({ ok: true });
+}
+
+async function handleAdminChatSend(request, env, chatId) {
+  const access = await requireAdminChatAccess(request, env);
+  if (access.error) return access.error;
+  const chat = await getOwnedAdminChat(env.DB, access.telegramUser.id, chatId);
+  if (!chat) return json({ error: "not_found" }, 404);
+
+  const { content, attachments, model } = await readJson(request);
+  if (typeof content !== "string" || content.length > 8000) {
+    return json({ error: "invalid_content" }, 400);
+  }
+
+  let chatModelId = chat.model;
+  if (model && model !== chat.model) {
+    if (!ADMIN_CHAT_MODELS[model]) return json({ error: "invalid_model" }, 400);
+    await setAdminChatModel(env.DB, chat.id, model);
+    chatModelId = model;
+  }
+  const chatModel = ADMIN_CHAT_MODELS[chatModelId] || ADMIN_CHAT_MODELS[ADMIN_CHAT_DEFAULT];
+
+  const att = validateAdminAttachments(attachments, chatModel);
+  if (!att.ok) {
+    return json(
+      att.message ? { error: att.error, message: att.message } : { error: att.error },
+      400
+    );
+  }
+  if (!content.trim() && att.list.length === 0) {
+    return json({ error: "empty_message" }, 400);
+  }
+
+  const prior = (await getAdminChatMessages(env.DB, chat.id))
+    .map((message) => ({
+      role: message.role,
+      content:
+        message.content && message.content.trim()
+          ? message.content
+          : message.atts?.length
+          ? `[Attached: ${message.atts.map((item) => item.name).join(", ")}]`
+          : "",
+    }))
+    .filter((message) => message.content.length);
+
+  const typed = content.trim();
+  const blocks = buildAdminAttachmentBlocks(att.list);
+  const newUser = blocks.length
+    ? {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: typed || "Please respond to the attached image(s) and file(s).",
+          },
+          ...blocks,
+        ],
+      }
+    : { role: "user", content: typed };
+
+  let planMode = false;
+  if (typeof newUser.content === "string" && /^\/plan\b/i.test(newUser.content.trim())) {
+    planMode = true;
+    newUser.content =
+      newUser.content.trim().replace(/^\/plan\b\s*/i, "") ||
+      "Plan the project we discussed above.";
+  }
+  const outgoing = planMode
+    ? [{ role: "system", content: PLAN_SYSTEM_PROMPT }, ...prior, newUser]
+    : [...prior, newUser];
+
+  try {
+    const reply = await adminChatComplete(env, chatModel, outgoing, {
+      maxTokens: planMode ? 8000 : 4096,
+      temperature: planMode ? 0.4 : 0.5,
+    });
+    if (!reply) throw new Error(`${chatModel.label} unavailable`);
+    const attMeta = att.list.map((item) => ({
+      type: item.type,
+      kind: item.type,
+      name: item.name || "file",
+    }));
+    await addAdminChatMessage(env.DB, chat.id, "user", typed, attMeta);
+    await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
+    await touchAdminChatMaybeTitle(env.DB, chat.id, typed || attMeta[0]?.name || "");
+    return json({ reply, model: chatModelId });
+  } catch (error) {
+    console.error("[AdminChat] failed:", error);
+    return json({ error: "chat_failed" }, 502);
+  }
 }
 
 async function handleAdminChat(request, env) {
@@ -287,7 +618,9 @@ async function handleAdminChat(request, env) {
     return json({ error: "forbidden" }, 403);
   }
 
-  const { messages, attachments } = await readJson(request);
+  const { messages, attachments, model: modelId } = await readJson(request);
+  const chatModel = ADMIN_CHAT_MODELS[modelId || ADMIN_CHAT_DEFAULT];
+  if (!chatModel) return json({ error: "invalid_model" }, 400);
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > 40) {
     return json({ error: "invalid_messages" }, 400);
   }
@@ -328,6 +661,12 @@ async function handleAdminChat(request, env) {
       if (item.base64.length > ATT_MAX_BASE64) {
         return json({ error: "attachment_too_large" }, 400);
       }
+      if (item.type === "image" && !chatModel.vision) {
+        return json(
+          { error: "model_no_vision", message: `${chatModel.label} can't read images. Switch to a vision model.` },
+          400
+        );
+      }
       if (item.type === "image") {
         blocks.push({
           type: "image_url",
@@ -348,6 +687,22 @@ async function handleAdminChat(request, env) {
 
   try {
     const outgoing = messages.map((item) => ({ role: item.role, content: item.content }));
+
+    // Slash command: /plan <goal> → deep-planning system prompt + bigger budget.
+    let planMode = false;
+    const lastIdx = outgoing.length - 1;
+    const lastText = typeof outgoing[lastIdx].content === "string" ? outgoing[lastIdx].content : "";
+    if (/^\/plan\b/i.test(lastText.trim())) {
+      planMode = true;
+      outgoing[lastIdx] = {
+        role: outgoing[lastIdx].role,
+        content: lastText.trim().replace(/^\/plan\b\s*/i, "") || "Plan the project we discussed above.",
+      };
+    }
+    if (planMode) {
+      outgoing.unshift({ role: "system", content: PLAN_SYSTEM_PROMPT });
+    }
+
     if (blocks.length) {
       const last = outgoing[outgoing.length - 1];
       outgoing[outgoing.length - 1] = {
@@ -356,20 +711,111 @@ async function handleAdminChat(request, env) {
           {
             type: "text",
             text:
-              (last.content || "").trim() ||
+              (typeof last.content === "string" ? last.content : "").trim() ||
               "Please respond to the attached image(s) and file(s).",
           },
           ...blocks,
         ],
       };
     }
-    const reply = await openAiChat(env, "kimi", KIMI_MODEL, outgoing, { maxTokens: 4096 });
-    if (!reply) throw new Error("Kimi unavailable");
-    return json({ reply });
+
+    const reply = await adminChatComplete(env, chatModel, outgoing, {
+      maxTokens: planMode ? 8000 : 4096,
+      temperature: planMode ? 0.4 : 0.5,
+    });
+    if (!reply) throw new Error(`${chatModel.label} unavailable`);
+    return json({ reply, model: chatModel.label });
   } catch (error) {
     console.error("[AdminChat] failed:", error);
     return json({ error: "chat_failed" }, 502);
   }
+}
+
+function validateAdminAttachments(attachments, chatModel) {
+  if (attachments === undefined) return { ok: true, list: [] };
+  if (!Array.isArray(attachments) || attachments.length > ATT_MAX) {
+    return { ok: false, error: "invalid_attachments" };
+  }
+  for (const item of attachments) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { ok: false, error: "invalid_attachments" };
+    }
+    if (item.type !== "image" && item.type !== "file") {
+      return { ok: false, error: "invalid_attachments" };
+    }
+    if (typeof item.base64 !== "string" || !item.base64) {
+      return { ok: false, error: "invalid_attachments" };
+    }
+    if (item.base64.length > ATT_MAX_BASE64) {
+      return { ok: false, error: "attachment_too_large" };
+    }
+    if (item.type === "image" && !chatModel.vision) {
+      return {
+        ok: false,
+        error: "model_no_vision",
+        message: `${chatModel.label} can't read images. Switch to a vision model.`,
+      };
+    }
+  }
+  return { ok: true, list: attachments };
+}
+
+function buildAdminAttachmentBlocks(attachments) {
+  return attachments.map((item) => {
+    if (item.type === "image") {
+      return {
+        type: "image_url",
+        image_url: {
+          url: item.base64.startsWith("data:")
+            ? item.base64
+            : `data:${item.mime || "image/jpeg"};base64,${item.base64}`,
+        },
+      };
+    }
+    return {
+      type: "text",
+      text: `Attached file "${item.name || "file"}":\n\n${decodeTextAttachment(item)}`,
+    };
+  });
+}
+
+// Admin-chat completion via OpenRouter, pooling ALL configured OpenRouter keys
+// so every free model works regardless of which env slot holds the key.
+async function adminChatComplete(env, chatModel, messages, options = {}) {
+  const keys = [
+    ...parseKeys(env.OPENROUTER_API_KEY),
+    ...parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY),
+    ...parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY),
+    ...parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY),
+  ];
+  const seen = new Set();
+  for (const key of keys) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...OPENROUTER_HEADERS,
+      },
+      body: JSON.stringify({
+        model: chatModel.or,
+        messages,
+        temperature: options.temperature ?? 0.5,
+        max_tokens: options.maxTokens ?? 4096,
+      }),
+    });
+    if (response.status === 429) continue;
+    if (!response.ok) {
+      console.warn(`[AdminChat] ${chatModel.or} failed: ${response.status}`);
+      continue;
+    }
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+    if (text?.trim()) return text.trim();
+  }
+  return null;
 }
 
 async function handleTelegramWebhook(request, env) {
@@ -409,11 +855,19 @@ async function handleTelegramWebhook(request, env) {
     const successfulPayment = update.message?.successful_payment;
     if (successfulPayment) {
       const payment = validateSuccessfulPayment(successfulPayment);
+      // First-purchase bonus: +50% credits on the user's first paid package.
+      let creditsToAdd = payment.creditsToAdd;
+      if (payment.starsPaid > 0 && !(await hasPaidPurchase(env.DB, payment.telegramId))) {
+        creditsToAdd = Math.round(creditsToAdd * (1 + FIRST_PURCHASE_BONUS));
+        console.log(
+          `[Payment] First-purchase bonus applied for ${payment.telegramId}: ${payment.creditsToAdd} -> ${creditsToAdd}`
+        );
+      }
       const result = await addCredits(
         env.DB,
         payment.telegramId,
         payment.starsPaid,
-        payment.creditsToAdd,
+        creditsToAdd,
         payment.payload,
         payment.paymentId
       );
@@ -460,11 +914,17 @@ async function requireTelegramUser(request, env) {
     throw new HttpError(401, "initData expired");
   }
 
+  let user;
   try {
-    return JSON.parse(params.get("user"));
+    user = JSON.parse(params.get("user"));
   } catch {
     throw new HttpError(401, "Invalid initData");
   }
+  // JSON.parse(null) -> null without throwing; require a numeric id.
+  if (!user || !Number.isFinite(Number(user.id)) || Number(user.id) <= 0) {
+    throw new HttpError(401, "Invalid initData");
+  }
+  return user;
 }
 
 async function getUser(db, telegramId) {
@@ -482,6 +942,33 @@ async function getUser(db, telegramId) {
   }
   await db.prepare("INSERT INTO users (telegram_id) VALUES (?)").bind(id).run();
   return { credits: 150, totalEarned: 0, adminChatUnlocked: false };
+}
+
+// Atomic spend: single UPDATE with credits >= cost guard (no TOCTOU window).
+async function spendCreditsAtomic(db, telegramId, cost) {
+  const id = Number(telegramId);
+  await getUser(db, id);
+  const result = await db
+    .prepare(
+      "UPDATE users SET credits = credits - ?, updated_at = unixepoch() WHERE telegram_id = ? AND credits >= ?"
+    )
+    .bind(cost, id, cost)
+    .run();
+  if (!result.meta?.changes) {
+    const user = await getUser(db, id);
+    return { ok: false, credits: user.credits };
+  }
+  return { ok: true };
+}
+
+// Refund a failed generation (provider error after deduction).
+async function refundCredits(db, telegramId, cost) {
+  await db
+    .prepare(
+      "UPDATE users SET credits = credits + ?, updated_at = unixepoch() WHERE telegram_id = ?"
+    )
+    .bind(cost, Number(telegramId))
+    .run();
 }
 
 async function deductCredits(
@@ -535,6 +1022,101 @@ async function hasPaidPurchase(db, telegramId) {
     .bind(Number(telegramId))
     .first();
   return !!row;
+}
+
+async function createAdminChat(db, telegramId, model, title = "New chat") {
+  const result = await db
+    .prepare("INSERT INTO admin_chats (telegram_id, title, model) VALUES (?, ?, ?)")
+    .bind(Number(telegramId), String(title).slice(0, ADMIN_CHAT_TITLE_MAX), model)
+    .run();
+  return result.meta?.last_row_id;
+}
+
+async function listAdminChats(db, telegramId) {
+  const result = await db
+    .prepare(
+      `SELECT c.id, c.title, c.model, c.updated_at,
+              (SELECT m.content FROM admin_chat_messages m
+                 WHERE m.chat_id = c.id ORDER BY m.id DESC LIMIT 1) AS preview,
+              (SELECT COUNT(*) FROM admin_chat_messages m WHERE m.chat_id = c.id) AS count
+       FROM admin_chats c
+       WHERE c.telegram_id = ?
+       ORDER BY c.updated_at DESC, c.id DESC
+       LIMIT 200`
+    )
+    .bind(Number(telegramId))
+    .all();
+  return result.results || [];
+}
+
+async function getOwnedAdminChat(db, telegramId, chatId) {
+  const row = await db
+    .prepare("SELECT id, telegram_id, title, model FROM admin_chats WHERE id = ?")
+    .bind(Number(chatId))
+    .first();
+  if (!row || Number(row.telegram_id) !== Number(telegramId)) return null;
+  return row;
+}
+
+async function getAdminChatMessages(db, chatId) {
+  const result = await db
+    .prepare(
+      "SELECT role, content, attachments_json, created_at FROM admin_chat_messages WHERE chat_id = ? ORDER BY id ASC LIMIT 1000"
+    )
+    .bind(Number(chatId))
+    .all();
+  return (result.results || []).map((row) => ({
+    role: row.role,
+    content: row.content,
+    atts: row.attachments_json ? JSON.parse(row.attachments_json) : [],
+    created_at: row.created_at,
+  }));
+}
+
+async function addAdminChatMessage(db, chatId, role, content, attachments) {
+  const atts =
+    Array.isArray(attachments) && attachments.length ? JSON.stringify(attachments) : null;
+  await db
+    .prepare(
+      "INSERT INTO admin_chat_messages (chat_id, role, content, attachments_json) VALUES (?, ?, ?, ?)"
+    )
+    .bind(Number(chatId), role, content || "", atts)
+    .run();
+}
+
+async function setAdminChatModel(db, chatId, model) {
+  await db
+    .prepare("UPDATE admin_chats SET model = ?, updated_at = unixepoch() WHERE id = ?")
+    .bind(model, Number(chatId))
+    .run();
+}
+
+async function touchAdminChatMaybeTitle(db, chatId, firstUserText) {
+  const row = await db
+    .prepare("SELECT title FROM admin_chats WHERE id = ?")
+    .bind(Number(chatId))
+    .first();
+  if (row && (row.title === "New chat" || !row.title) && firstUserText) {
+    await db
+      .prepare("UPDATE admin_chats SET title = ?, updated_at = unixepoch() WHERE id = ?")
+      .bind(String(firstUserText).slice(0, ADMIN_CHAT_TITLE_MAX), Number(chatId))
+      .run();
+  } else {
+    await db
+      .prepare("UPDATE admin_chats SET updated_at = unixepoch() WHERE id = ?")
+      .bind(Number(chatId))
+      .run();
+  }
+}
+
+async function deleteAdminChat(db, telegramId, chatId) {
+  const chat = await getOwnedAdminChat(db, telegramId, chatId);
+  if (!chat) return;
+  await db.prepare("DELETE FROM admin_chat_messages WHERE chat_id = ?").bind(chat.id).run();
+  await db
+    .prepare("DELETE FROM admin_chats WHERE id = ? AND telegram_id = ?")
+    .bind(chat.id, Number(telegramId))
+    .run();
 }
 
 async function recordUsage(db, telegramId, strategy, task = null, promptText = null, creditsSpent = 0) {
@@ -883,11 +1465,14 @@ function isAdmin(env, telegramId) {
     .includes(String(telegramId));
 }
 
-function rateLimit(telegramId) {
+// Per-user sliding-window limiter. Scoped by bucket ("promo", "gen", ...).
+// In-memory per isolate — not a hard guarantee on Cloudflare, but enough to
+// blunt request-spam against paid provider APIs.
+function rateLimit(telegramId, bucket = "promo", max = 10) {
   const now = Date.now();
-  const key = String(telegramId);
+  const key = `${bucket}:${telegramId}`;
   const recent = (PROMO_HITS.get(key) || []).filter((time) => now - time < 60_000);
-  if (recent.length >= 10) {
+  if (recent.length >= max) {
     PROMO_HITS.set(key, recent);
     return true;
   }

@@ -1,13 +1,17 @@
 // Credit-based usage store backed by SQLite (better-sqlite3, synchronous API).
 import db from "../db/database.js";
 
+// Value per Star must INCREASE with package size (drives average order value up).
 export const PACKAGES = [
-  { id: "pack_10", stars: 10, credits: 1500, label: "Starter" },
-  { id: "pack_25", stars: 25, credits: 3500, label: "Basic" },
-  { id: "pack_50", stars: 50, credits: 6000, label: "Standard" },
-  { id: "pack_100", stars: 100, credits: 10000, label: "Pro" },
-  { id: "pack_200", stars: 200, credits: 18000, label: "Max" },
+  { id: "pack_10", stars: 10, credits: 1500, label: "Starter", bonusPct: 0 },
+  { id: "pack_25", stars: 25, credits: 4000, label: "Basic", bonusPct: 7 },
+  { id: "pack_50", stars: 50, credits: 8500, label: "Standard", bonusPct: 13 },
+  { id: "pack_100", stars: 100, credits: 18000, label: "Pro", bonusPct: 20 },
+  { id: "pack_200", stars: 200, credits: 40000, label: "Max", bonusPct: 33 },
 ];
+
+// First paid purchase grants +50% extra credits.
+export const FIRST_PURCHASE_BONUS = 0.5;
 
 export const GENERATION_COST = {
   "claude-standard": 50,
@@ -93,6 +97,24 @@ export function deductCredits(
     logUsage.run(id, strategy, cost, task ?? null, promptText ?? null);
     return { ok: true, credits: getCredits(id), spent: cost };
   })();
+}
+
+// Atomic spend without usage logging (deduct-before-generate pattern).
+export function spendCreditsAtomic(telegramId, cost) {
+  const id = Number(telegramId);
+  getUser(id);
+  const result = spendCredits.run(cost, id, cost);
+  if (result.changes !== 1) return { ok: false, credits: getCredits(id) };
+  return { ok: true };
+}
+
+const refundCreditsStmt = db.prepare(
+  "UPDATE users SET credits = credits + ?, updated_at = strftime('%s','now') WHERE telegram_id = ?"
+);
+
+// Refund a failed generation (provider error after deduction).
+export function refundCredits(telegramId, cost) {
+  refundCreditsStmt.run(cost, Number(telegramId));
 }
 
 // Record a usage entry without deducting (used for admins, who bypass billing
