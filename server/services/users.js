@@ -49,6 +49,12 @@ const selectUnlock = db.prepare(
 const setUnlock = db.prepare(
   "UPDATE users SET admin_chat_unlocked = 1, updated_at = strftime('%s','now') WHERE telegram_id = ?"
 );
+const selectPanelUnlock = db.prepare(
+  "SELECT admin_panel_unlocked FROM users WHERE telegram_id = ?"
+);
+const setPanelUnlock = db.prepare(
+  "UPDATE users SET admin_panel_unlocked = 1, updated_at = strftime('%s','now') WHERE telegram_id = ?"
+);
 const selectPaidPurchase = db.prepare(
   "SELECT 1 FROM purchase_log WHERE telegram_id = ? AND stars_paid > 0 LIMIT 1"
 );
@@ -140,6 +146,20 @@ export function setAdminChatUnlocked(telegramId) {
 export function isAdminChatUnlocked(telegramId) {
   const row = selectUnlock.get(Number(telegramId));
   return !!(row && row.admin_chat_unlocked === 1);
+}
+
+// Persistent admin-panel unlock. Set once after a successful two-factor unlock.
+export function setAdminPanelUnlocked(telegramId) {
+  const id = Number(telegramId);
+  getUser(id); // ensure the row exists
+  setPanelUnlock.run(id);
+}
+
+// Stored flag only. Callers MUST also re-check ADMIN_TELEGRAM_IDS live before
+// trusting this (a removed admin loses access even if the flag is still set).
+export function isAdminPanelUnlocked(telegramId) {
+  const row = selectPanelUnlock.get(Number(telegramId));
+  return !!(row && row.admin_panel_unlocked === 1);
 }
 
 export function hasPaidPurchase(telegramId) {

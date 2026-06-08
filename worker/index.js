@@ -233,6 +233,9 @@ export default {
           adminChatUnlocked:
             isAdmin(env, telegramUser.id) &&
             (await isAdminChatUnlocked(env.DB, telegramUser.id)),
+          adminPanelUnlocked:
+            isAdmin(env, telegramUser.id) &&
+            (await isAdminPanelUnlocked(env.DB, telegramUser.id)),
           packages: PACKAGES,
           generationCost: GENERATION_COST,
         });
@@ -264,6 +267,13 @@ export default {
           }
           await setAdminChatUnlocked(env.DB, telegramUser.id);
           return json({ adminChat: true });
+        }
+        if (await matchesAdminPanelToken(env, code)) {
+          if (!isAdmin(env, telegramUser.id)) {
+            return json({ error: "invalid_code", message: "Invalid promo code" }, 400);
+          }
+          await setAdminPanelUnlocked(env.DB, telegramUser.id);
+          return json({ adminPanel: true });
         }
         const result = await redeemPromo(env.DB, telegramUser.id, code);
         if (result.error === "invalid_code") {
@@ -305,6 +315,18 @@ export default {
 
       if (url.pathname === "/api/admin/models" && request.method === "GET") {
         return await handleAdminModels(request, env);
+      }
+
+      if (url.pathname === "/api/admin/panel/key-limits" && request.method === "GET") {
+        return await handleAdminPanelKeyLimits(request, env);
+      }
+
+      if (url.pathname === "/api/admin/panel/openrouter-models" && request.method === "GET") {
+        return await handleAdminPanelModels(request, env);
+      }
+
+      if (url.pathname === "/api/admin/panel/model-tests" && request.method === "GET") {
+        return await handleAdminPanelModelTests(request, env);
       }
 
       if (url.pathname === "/api/admin/chats" && request.method === "GET") {
@@ -513,6 +535,197 @@ async function handleAdminModels(request, env) {
   const telegramUser = await requireTelegramUser(request, env);
   if (!isAdmin(env, telegramUser.id)) return json({ error: "forbidden" }, 403);
   return json({ models: ADMIN_CHAT_MODEL_LIST });
+}
+
+// ── Admin monitoring panel ────────────────────────────────────────────────
+// Gated on live admin status AND the persistent panel unlock, mirroring
+// requireAdminChatAccess.
+async function requireAdminPanelAccess(request, env) {
+  const telegramUser = await requireTelegramUser(request, env);
+  if (!isAdmin(env, telegramUser.id) || !(await isAdminPanelUnlocked(env.DB, telegramUser.id))) {
+    return { error: json({ error: "forbidden" }, 403) };
+  }
+  return { telegramUser };
+}
+
+function maskKey(key) {
+  if (!key) return "";
+  if (key.length <= 10) return `…${key.slice(-3)}`;
+  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+}
+
+async function checkSiliconFlowKey(key) {
+  const masked = maskKey(key);
+  try {
+    const res = await fetch(`${SILICONFLOW_BASE_URL}/user/info`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) return { key: masked, status: "error", detail: `HTTP ${res.status}` };
+    const body = await res.json().catch(() => null);
+    const data = body?.data || {};
+    return {
+      key: masked,
+      status: "ok",
+      balance: data.balance ?? data.totalBalance ?? null,
+      totalBalance: data.totalBalance ?? null,
+      remaining: data.balance ?? null,
+    };
+  } catch (err) {
+    return { key: masked, status: "error", detail: String(err.message || err) };
+  }
+}
+
+async function checkOpenRouterKey(key) {
+  const masked = maskKey(key);
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/key`, {
+      headers: { Authorization: `Bearer ${key}`, ...OPENROUTER_HEADERS },
+    });
+    if (!res.ok) return { key: masked, status: "error", detail: `HTTP ${res.status}` };
+    const body = await res.json().catch(() => null);
+    const data = body?.data || {};
+    const remaining =
+      data.limit_remaining ??
+      (data.limit != null && data.usage != null ? data.limit - data.usage : null);
+    return {
+      key: masked,
+      status: "ok",
+      usage: data.usage ?? null,
+      limit: data.limit ?? null,
+      remaining,
+      freeTier: data.is_free_tier ?? null,
+    };
+  } catch (err) {
+    return { key: masked, status: "error", detail: String(err.message || err) };
+  }
+}
+
+async function handleAdminPanelKeyLimits(request, env) {
+  const access = await requireAdminPanelAccess(request, env);
+  if (access.error) return access.error;
+
+  const defs = [
+    { label: "Gemini", keys: parseKeys(env.GEMINI_API_KEYS || env.GEMINI_API_KEY), kind: "gemini" },
+    { label: "SiliconFlow", keys: parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN), kind: "siliconflow" },
+    { label: "OpenRouter · GPT-OSS", keys: parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY), kind: "openrouter" },
+    { label: "OpenRouter · Kimi", keys: parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY), kind: "openrouter" },
+    { label: "OpenRouter · Gemma", keys: parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY), kind: "openrouter" },
+    { label: "OpenRouter · shared", keys: parseKeys(env.OPENROUTER_API_KEY), kind: "openrouter" },
+    { label: "Qwen", keys: parseKeys(env.QWEN_API_KEYS || env.QWEN_API_KEY), kind: "qwen" },
+  ];
+
+  const providers = await Promise.all(
+    defs.map(async (d) => {
+      let entries;
+      if (d.keys.length === 0) {
+        entries = [];
+      } else if (d.kind === "siliconflow") {
+        entries = await Promise.all(d.keys.map(checkSiliconFlowKey));
+      } else if (d.kind === "openrouter") {
+        entries = await Promise.all(d.keys.map(checkOpenRouterKey));
+      } else {
+        entries = d.keys.map((k) => ({ key: maskKey(k), status: "no_quota_api", remaining: null }));
+      }
+      return { provider: d.label, kind: d.kind, configured: d.keys.length, keys: entries };
+    })
+  );
+
+  return json({ providers, checkedAt: new Date().toISOString() });
+}
+
+async function handleAdminPanelModels(request, env) {
+  const access = await requireAdminPanelAccess(request, env);
+  if (access.error) return access.error;
+
+  const available = new Map();
+  let error = null;
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/models`, { headers: OPENROUTER_HEADERS });
+    if (!res.ok) {
+      error = `HTTP ${res.status}`;
+    } else {
+      const data = await res.json();
+      for (const m of data?.data || []) available.set(m.id, m);
+    }
+  } catch (err) {
+    error = String(err.message || err);
+  }
+
+  const models = ADMIN_CHAT_MODEL_LIST.map((m) => {
+    const live = available.get(m.or) || null;
+    return {
+      id: m.id,
+      label: m.label,
+      enabled: !!live,
+      available: !!live,
+      contextLength: live?.context_length ?? null,
+    };
+  });
+
+  return json({ models, totalAvailable: available.size, error, checkedAt: new Date().toISOString() });
+}
+
+function allOpenRouterKeys(env) {
+  const keys = [
+    ...parseKeys(env.OPENROUTER_API_KEY),
+    ...parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY),
+    ...parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY),
+    ...parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY),
+  ];
+  return [...new Set(keys)];
+}
+
+// One minimal generation per model using a single key (keeps subrequests bounded).
+async function testModelOnce(env, model, key) {
+  const started = Date.now();
+  try {
+    const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...OPENROUTER_HEADERS,
+      },
+      body: JSON.stringify({
+        model: model.or,
+        messages: [{ role: "user", content: "Reply with the single word: ok" }],
+        max_tokens: 16,
+      }),
+    });
+    const ms = Date.now() - started;
+    if (!res.ok) return { id: model.id, label: model.label, status: "error", ms, detail: `HTTP ${res.status}` };
+    const data = await res.json().catch(() => null);
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text || !text.trim()) {
+      return { id: model.id, label: model.label, status: "error", ms, detail: "empty response" };
+    }
+    return { id: model.id, label: model.label, status: "ok", ms, sample: text.trim().slice(0, 80) };
+  } catch (err) {
+    return { id: model.id, label: model.label, status: "error", ms: Date.now() - started, detail: String(err.message || err) };
+  }
+}
+
+async function handleAdminPanelModelTests(request, env) {
+  const access = await requireAdminPanelAccess(request, env);
+  if (access.error) return access.error;
+
+  const keys = allOpenRouterKeys(env);
+  if (keys.length === 0) {
+    return json({
+      results: ADMIN_CHAT_MODEL_LIST.map((m) => ({
+        id: m.id,
+        label: m.label,
+        status: "error",
+        ms: null,
+        detail: "no OpenRouter key configured",
+      })),
+      checkedAt: new Date().toISOString(),
+    });
+  }
+
+  const key = keys[0];
+  const results = await Promise.all(ADMIN_CHAT_MODEL_LIST.map((m) => testModelOnce(env, m, key)));
+  return json({ results, checkedAt: new Date().toISOString() });
 }
 
 async function handleAdminChatList(request, env) {
@@ -1278,6 +1491,43 @@ async function setAdminChatUnlocked(db, telegramId) {
     .run();
 }
 
+// Read the panel-unlock flag with its own query (kept out of getUser's hot path).
+// Tolerates the column being absent until migration 0006 is applied — locked.
+async function isAdminPanelUnlocked(db, telegramId) {
+  const id = Number(telegramId);
+  try {
+    const row = await db
+      .prepare("SELECT admin_panel_unlocked FROM users WHERE telegram_id = ?")
+      .bind(id)
+      .first();
+    return !!(row && row.admin_panel_unlocked === 1);
+  } catch {
+    return false;
+  }
+}
+
+async function setAdminPanelUnlocked(db, telegramId) {
+  const id = Number(telegramId);
+  await getUser(db, id);
+  await ensureAdminPanelColumn(db);
+  await db
+    .prepare("UPDATE users SET admin_panel_unlocked = 1, updated_at = unixepoch() WHERE telegram_id = ?")
+    .bind(id)
+    .run();
+}
+
+// Idempotently add the panel-unlock column so activation works even if the D1
+// migration (0006) hasn't been applied manually. Ignores "duplicate column".
+async function ensureAdminPanelColumn(db) {
+  try {
+    await db
+      .prepare("ALTER TABLE users ADD COLUMN admin_panel_unlocked INTEGER NOT NULL DEFAULT 0")
+      .run();
+  } catch {
+    /* column already exists — fine */
+  }
+}
+
 async function hasPaidPurchase(db, telegramId) {
   const row = await db
     .prepare("SELECT 1 AS paid FROM purchase_log WHERE telegram_id = ? AND stars_paid > 0 LIMIT 1")
@@ -1752,6 +2002,15 @@ function rateLimit(telegramId, bucket = "promo", max = 10) {
 
 async function matchesAdminToken(env, code) {
   const token = String(env.ADMIN_CHAT_TOKEN || "");
+  if (!token) return false;
+  return safeEqual(String(code || "").trim(), token);
+}
+
+// Admin monitoring-panel unlock token. Defaults to a built-in value so the panel
+// activates out of the box; set ADMIN_PANEL_TOKEN (wrangler secret) to override.
+// Useless on its own — the redeem path also requires the caller to be an admin.
+async function matchesAdminPanelToken(env, code) {
+  const token = String(env.ADMIN_PANEL_TOKEN || "ADMIN_PANEL_060826qramvseryuoz10409");
   if (!token) return false;
   return safeEqual(String(code || "").trim(), token);
 }

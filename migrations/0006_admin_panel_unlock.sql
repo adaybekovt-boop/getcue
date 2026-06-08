@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN admin_panel_unlocked INTEGER NOT NULL DEFAULT 0;

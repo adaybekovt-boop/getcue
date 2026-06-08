@@ -10,6 +10,7 @@ import paymentRouter from "./routes/payment.js";
 import webhookRouter from "./routes/webhook.js";
 import promoRouter from "./routes/promo.js";
 import imagePromptRouter from "./routes/generateImagePrompt.js";
+import adminPanelRouter from "./routes/admin.js";
 import { validateInitData } from "./middleware/validateInitData.js";
 import {
   getUser,
@@ -17,6 +18,7 @@ import {
   getHistory,
   hasPaidPurchase,
   isAdminChatUnlocked,
+  isAdminPanelUnlocked,
   PACKAGES,
   GENERATION_COST,
 } from "./services/users.js";
@@ -81,6 +83,7 @@ app.get("/api/me", validateInitData, (req, res) => {
     isAdmin: admin,
     // Live re-check: stored flag is honoured only while still an admin.
     adminChatUnlocked: admin && isAdminChatUnlocked(telegramId),
+    adminPanelUnlocked: admin && isAdminPanelUnlocked(telegramId),
     packages: PACKAGES,
     generationCost: GENERATION_COST,
   });
@@ -303,7 +306,16 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     }))
     .filter((m) => m.content.length);
 
-  const blocks = await buildBlocks(att.list);
+  // Attachment processing (image data URLs, file text extraction) can throw on
+  // malformed input. Keep it inside a try/catch — an uncaught rejection here
+  // would crash the process under Node's default unhandled-rejection handling.
+  let blocks;
+  try {
+    blocks = await buildBlocks(att.list);
+  } catch (err) {
+    console.error("[AdminChat] attachment processing failed:", err.message);
+    return res.status(400).json({ error: "attachment_processing_failed" });
+  }
   const userContent = blocks.length
     ? {
         role: "user",
@@ -341,6 +353,7 @@ app.delete("/api/admin/chats/:id", validateInitData, (req, res) => {
   return res.json({ ok: true });
 });
 
+app.use("/api/admin/panel", adminPanelRouter);
 app.use("/api/generate", generateRouter);
 app.use("/api/generate-image-prompt", imagePromptRouter);
 app.use("/api/payment", paymentRouter);
