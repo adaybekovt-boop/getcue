@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import { IconRefresh, IconCheck, IconX, IconMinus } from "@tabler/icons-react";
 import { api } from "../api.js";
@@ -33,6 +33,7 @@ function Section({ title, hint, endpoint, render }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Nothing runs on mount — data loads ONLY when the user presses Refresh.
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -41,10 +42,6 @@ function Section({ title, hint, endpoint, render }) {
       .catch((e) => setError(e.message || "Request failed"))
       .finally(() => setLoading(false));
   }, [endpoint]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   return (
     <section className="ap-section">
@@ -61,6 +58,9 @@ function Section({ title, hint, endpoint, render }) {
       {error && <div className="ap-error">{error}</div>}
       {!error && data && render(data)}
       {!error && !data && loading && <div className="ap-loading">Loading…</div>}
+      {!error && !data && !loading && (
+        <div className="ap-loading">Press “Refresh” to run this check.</div>
+      )}
     </section>
   );
 }
