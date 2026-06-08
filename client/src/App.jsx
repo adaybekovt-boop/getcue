@@ -6,6 +6,7 @@ import ImagePromptScreen from "./screens/ImagePromptScreen.jsx";
 import HistoryScreen from "./screens/HistoryScreen.jsx";
 import SettingsScreen from "./screens/SettingsScreen.jsx";
 import AdminChatScreen from "./screens/AdminChatScreen.jsx";
+import Admin from "./pages/Admin.jsx";
 import ProScreen from "./screens/ProScreen.jsx";
 import BottomNav from "./components/BottomNav.jsx";
 import AuroraBackground from "./components/AuroraBackground.jsx";
@@ -90,6 +91,7 @@ export default function App() {
               }
             />
             <Route path="/admin-chat" element={<AdminChatScreen me={me} />} />
+            <Route path="/admin" element={<Admin me={me} />} />
           </Routes>
         </div>
         {!hideNav && <BottomNav />}

@@ -2719,3 +2719,128 @@ button {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 160px 160px;
 }
+
+/* ── Admin monitoring panel ─────────────────────────────────────────────── */
+.admin-panel .ap-section {
+  margin-top: 22px;
+}
+.admin-panel .ap-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.admin-panel .ap-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+.admin-panel .ap-section-hint {
+  font-size: 12px;
+  opacity: 0.6;
+  margin: 2px 0 0;
+}
+.admin-panel .ap-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  cursor: pointer;
+}
+.admin-panel .ap-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.admin-panel .ap-spin {
+  animation: ap-spin 0.8s linear infinite;
+}
+@keyframes ap-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.admin-panel .ap-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.admin-panel .ap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.admin-panel .ap-table th,
+.admin-panel .ap-table td {
+  text-align: left;
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  white-space: nowrap;
+}
+.admin-panel .ap-table th {
+  font-weight: 600;
+  opacity: 0.6;
+  background: rgba(255, 255, 255, 0.03);
+}
+.admin-panel .ap-table tr:last-child td {
+  border-bottom: none;
+}
+.admin-panel .ap-row-muted td {
+  opacity: 0.5;
+}
+.admin-panel .ap-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+.admin-panel .ap-detail {
+  opacity: 0.65;
+  white-space: normal;
+}
+.admin-panel .ap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.admin-panel .ap-ok {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+.admin-panel .ap-err {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+}
+.admin-panel .ap-muted {
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0.75;
+}
+.admin-panel .ap-error,
+.admin-panel .ap-warn {
+  font-size: 12.5px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.admin-panel .ap-error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+.admin-panel .ap-warn {
+  background: rgba(234, 179, 8, 0.12);
+  color: #facc15;
+}
+.admin-panel .ap-loading {
+  font-size: 13px;
+  opacity: 0.6;
+  padding: 8px 0;
+}

@@ -10,6 +10,7 @@ import paymentRouter from "./routes/payment.js";
 import webhookRouter from "./routes/webhook.js";
 import promoRouter from "./routes/promo.js";
 import imagePromptRouter from "./routes/generateImagePrompt.js";
+import adminPanelRouter from "./routes/admin.js";
 import { validateInitData } from "./middleware/validateInitData.js";
 import {
   getUser,
@@ -341,6 +342,7 @@ app.delete("/api/admin/chats/:id", validateInitData, (req, res) => {
   return res.json({ ok: true });
 });
 
+app.use("/api/admin/panel", adminPanelRouter);
 app.use("/api/generate", generateRouter);
 app.use("/api/generate-image-prompt", imagePromptRouter);
 app.use("/api/payment", paymentRouter);
