@@ -1509,10 +1509,23 @@ async function isAdminPanelUnlocked(db, telegramId) {
 async function setAdminPanelUnlocked(db, telegramId) {
   const id = Number(telegramId);
   await getUser(db, id);
+  await ensureAdminPanelColumn(db);
   await db
     .prepare("UPDATE users SET admin_panel_unlocked = 1, updated_at = unixepoch() WHERE telegram_id = ?")
     .bind(id)
     .run();
+}
+
+// Idempotently add the panel-unlock column so activation works even if the D1
+// migration (0006) hasn't been applied manually. Ignores "duplicate column".
+async function ensureAdminPanelColumn(db) {
+  try {
+    await db
+      .prepare("ALTER TABLE users ADD COLUMN admin_panel_unlocked INTEGER NOT NULL DEFAULT 0")
+      .run();
+  } catch {
+    /* column already exists — fine */
+  }
 }
 
 async function hasPaidPurchase(db, telegramId) {
