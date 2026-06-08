@@ -1,12 +1,12 @@
 {
-  // NOTE: The Cloudflare Worker backend is ARCHIVED and no longer deployed.
-  // Production runs the Node Express server — `node server/index.js` (package.json
-  // "start") — which serves client/dist + the full /api (admin multi-platform chat
-  // and image generation). The former worker entry is preserved at
-  // worker/index.js.archived for reference only and is intentionally NOT built
-  // here (no "main"). Do not `wrangler deploy` this config.
+  // Cloudflare deploy target is now the edge Worker (worker/edge.js): it serves
+  // the static SPA from client/dist and proxies /api/* to the Node Express
+  // backend. Set API_ORIGIN to your Node host (e.g. `wrangler secret put
+  // API_ORIGIN`). The previous full Workers implementation is preserved,
+  // untouched, at worker/index.js.archived and is no longer deployed.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "getcue",
+  "main": "worker/edge.js",
   "compatibility_date": "2026-06-07",
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "4779193285f4b7225a52cfb160958347",
@@ -18,14 +18,6 @@
   "observability": {
     "enabled": true
   },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "getcue",
-      "database_id": "0c8af186-3982-4a2a-b456-087ebd99ae68",
-      "migrations_dir": "./migrations"
-    }
-  ],
   "vars": {
     "NODE_ENV": "production"
   }
