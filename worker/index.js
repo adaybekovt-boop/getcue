@@ -1,4 +1,4 @@
-import { generatorPrompt } from "../src/config/generatorPrompt.js";
+﻿import { generatorPrompt } from "../src/config/generatorPrompt.js";
 import { repoSummary } from "../src/fixtures/repoSummary.js";
 import { strategyCards, strategyKeys } from "../src/config/strategyCards.js";
 import { IMAGE_STRATEGY_CARDS } from "../src/config/imageStrategyCards.js";
@@ -13,7 +13,7 @@ const PACKAGES = [
   { id: "pack_200", stars: 200, credits: 40000, label: "Max", bonusPct: 33 },
 ];
 
-// First paid purchase grants +50% extra credits (free→paid conversion lever).
+// First paid purchase grants +50% extra credits (freeв†’paid conversion lever).
 const FIRST_PURCHASE_BONUS = 0.5;
 
 const GENERATION_COST = {
@@ -44,11 +44,11 @@ const OPENROUTER_HEADERS = {
   "HTTP-Referer": "https://getcue.app",
   "X-Title": "Cue",
 };
-const GPTOSS_MODEL = "openai/gpt-oss-120b";
+const GPTOSS_MODEL = "openai/gpt-oss-20b:free";
 const KIMI_MODEL = "moonshotai/kimi-k2.6";
 const GEMMA_MODEL = "google/gemma-4-31b-it:free";
 
-// Admin-chat model registry — all routed through OpenRouter. Keep ids in sync
+// Admin-chat model registry вЂ” all routed through OpenRouter. Keep ids in sync
 // with the Express-side registry and the client model sheet.
 const ADMIN_CHAT_MODEL_LIST = [
   {
@@ -56,7 +56,7 @@ const ADMIN_CHAT_MODEL_LIST = [
     or: "moonshotai/kimi-k2.6:free",
     label: "Kimi K2.6",
     vision: true,
-    blurb: "Best all-rounder — agentic, coding & tool use. Reads images.",
+    blurb: "Best all-rounder вЂ” agentic, coding & tool use. Reads images.",
     best: "Coding, multi-step tasks, working with images & files.",
     weak: "Can be slower on very long replies.",
     tags: ["Agentic", "Coding", "Vision", "Tool use"],
@@ -76,7 +76,7 @@ const ADMIN_CHAT_MODEL_LIST = [
     or: "openai/gpt-oss-20b:free",
     label: "GPT-OSS 20B",
     vision: false,
-    blurb: "Fast & light — quick answers.",
+    blurb: "Fast & light вЂ” quick answers.",
     best: "Quick questions, drafts, fast iteration.",
     weak: "Weaker on hard / complex problems.",
     tags: ["Fast", "Lightweight", "Text only"],
@@ -88,7 +88,7 @@ const ADMIN_CHAT_MODEL_LIST = [
     vision: true,
     blurb: "Balanced all-rounder that reads images.",
     best: "General chat and reading images/screenshots.",
-    weak: "Mid-size — not the deepest reasoner.",
+    weak: "Mid-size вЂ” not the deepest reasoner.",
     tags: ["Balanced", "Vision", "General"],
   },
   {
@@ -106,7 +106,7 @@ const ADMIN_CHAT_MODEL_LIST = [
     or: "qwen/qwen3-coder:free",
     label: "Qwen3 Coder",
     vision: false,
-    blurb: "Code specialist — repos & refactors.",
+    blurb: "Code specialist вЂ” repos & refactors.",
     best: "Writing & refactoring code, whole repos.",
     weak: "Weaker at casual chat; text only.",
     tags: ["Coding", "Repos", "Text only"],
@@ -156,7 +156,7 @@ const ADMIN_CHAT_MODEL_LIST = [
     or: "nousresearch/hermes-3-llama-3.1-405b:free",
     label: "Hermes 3 405B",
     vision: false,
-    blurb: "Massive & steerable — long-form & roleplay.",
+    blurb: "Massive & steerable вЂ” long-form & roleplay.",
     best: "Long-form writing, personas, steerability.",
     weak: "Large & slower; no images.",
     tags: ["Long-form", "Roleplay", "Huge"],
@@ -166,9 +166,9 @@ const ADMIN_CHAT_MODEL_LIST = [
     or: "nvidia/nemotron-nano-12b-v2-vl:free",
     label: "Nemotron Nano VL",
     vision: true,
-    blurb: "Small vision model — reads images, fast.",
+    blurb: "Small vision model вЂ” reads images, fast.",
     best: "Quick image reading on a budget.",
-    weak: "Small — limited for hard text tasks.",
+    weak: "Small вЂ” limited for hard text tasks.",
     tags: ["Vision", "Small", "Fast"],
   },
 ];
@@ -199,7 +199,7 @@ Rules:
 - Evidence over opinion. Every issue must point to a concrete file/function/area and explain what breaks.
 - No subjective style nits unless they cause an actual bug or concrete maintainability failure.
 - Severity-rank each finding: [CRITICAL], [HIGH], [MEDIUM], [LOW].
-- For each finding use: [SEVERITY] short title — file/area — problem — why it breaks — concrete fix.
+- For each finding use: [SEVERITY] short title вЂ” file/area вЂ” problem вЂ” why it breaks вЂ” concrete fix.
 - Finish with "Top 3 to fix first" in priority order.`;
 const REPO_CONTEXT_MAX_FILES = 24;
 const REPO_CONTEXT_MAX_TOTAL_CHARS = 36_000;
@@ -537,7 +537,7 @@ async function handleAdminModels(request, env) {
   return json({ models: ADMIN_CHAT_MODEL_LIST });
 }
 
-// ── Admin monitoring panel ────────────────────────────────────────────────
+// в”Ђв”Ђ Admin monitoring panel в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 // Gated on live admin status AND the persistent panel unlock, mirroring
 // requireAdminChatAccess.
 async function requireAdminPanelAccess(request, env) {
@@ -550,8 +550,8 @@ async function requireAdminPanelAccess(request, env) {
 
 function maskKey(key) {
   if (!key) return "";
-  if (key.length <= 10) return `…${key.slice(-3)}`;
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+  if (key.length <= 10) return `вЂ¦${key.slice(-3)}`;
+  return `${key.slice(0, 4)}вЂ¦${key.slice(-4)}`;
 }
 
 async function checkSiliconFlowKey(key) {
@@ -607,10 +607,8 @@ async function handleAdminPanelKeyLimits(request, env) {
   const defs = [
     { label: "Gemini", keys: parseKeys(env.GEMINI_API_KEYS || env.GEMINI_API_KEY), kind: "gemini" },
     { label: "SiliconFlow", keys: parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN), kind: "siliconflow" },
-    { label: "OpenRouter · GPT-OSS", keys: parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY), kind: "openrouter" },
-    { label: "OpenRouter · Kimi", keys: parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY), kind: "openrouter" },
-    { label: "OpenRouter · Gemma", keys: parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY), kind: "openrouter" },
-    { label: "OpenRouter · shared", keys: parseKeys(env.OPENROUTER_API_KEY), kind: "openrouter" },
+    { label: "OpenRouter - User", keys: parseKeys(env.OPENROUTER_USER_KEY), kind: "openrouter" },
+    { label: "OpenRouter - Admin", keys: parseKeys(env.OPENROUTER_ADMIN_KEY), kind: "openrouter" },
     { label: "Qwen", keys: parseKeys(env.QWEN_API_KEYS || env.QWEN_API_KEY), kind: "qwen" },
   ];
 
@@ -666,18 +664,12 @@ async function handleAdminPanelModels(request, env) {
 }
 
 function allOpenRouterKeys(env) {
-  const keys = [
-    ...parseKeys(env.OPENROUTER_API_KEY),
-    ...parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY),
-    ...parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY),
-    ...parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY),
-  ];
+  const keys = parseKeys(env.OPENROUTER_ADMIN_KEY);
   return [...new Set(keys)];
 }
 
-// Minimal generation for one model, rotating across keys on HTTP 429 so a
-// rate-limited key doesn't mask a healthy model. A 429 across ALL keys is
-// reported as "limited" (not a hard "error") — the model is likely fine, just
+// Minimal generation for one model, using the admin OpenRouter key. A 429 is
+// reported as "limited" (not a hard "error") вЂ” the model is likely fine, just
 // throttled on the free tier right now.
 async function testModel(env, model, keys) {
   const started = Date.now();
@@ -837,7 +829,7 @@ async function handleAdminChatSend(request, env, chatId) {
       await setAdminChatRepo(env.DB, chat.id, info.repo, info.context);
       const kb = Math.round(info.chars / 1024);
       const reply =
-        `Loaded ${info.repo} — ${info.fileCount} of ${info.totalFiles} files in context (~${kb} KB).\n\n` +
+        `Loaded ${info.repo} вЂ” ${info.fileCount} of ${info.totalFiles} files in context (~${kb} KB).\n\n` +
         "Ask anything about the code, run /plan <task> for an implementation plan, or /critic for an honest review.";
       await addAdminChatMessage(env.DB, chat.id, "user", typed, []);
       await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
@@ -884,7 +876,7 @@ async function handleAdminChatSend(request, env, chatId) {
   }
   if (chat.repo_context) {
     systemParts.push(
-      `REPOSITORY IN CONTEXT — the user loaded this repo with /github; use it as the source of truth when answering:\n\n${chat.repo_context}`
+      `REPOSITORY IN CONTEXT вЂ” the user loaded this repo with /github; use it as the source of truth when answering:\n\n${chat.repo_context}`
     );
   }
   const newUser = blocks.length
@@ -1001,7 +993,7 @@ async function handleAdminChat(request, env) {
   try {
     const outgoing = messages.map((item) => ({ role: item.role, content: item.content }));
 
-    // Slash command: /plan <goal> → deep-planning system prompt + bigger budget.
+    // Slash command: /plan <goal> в†’ deep-planning system prompt + bigger budget.
     let planMode = false;
     const lastIdx = outgoing.length - 1;
     const lastText = typeof outgoing[lastIdx].content === "string" ? outgoing[lastIdx].content : "";
@@ -1131,7 +1123,7 @@ async function fetchRepoContext(env, repoUrl) {
   const parts = [];
   parts.push(`REPOSITORY: ${owner}/${repo}`);
   if (meta.description) parts.push(`DESCRIPTION: ${meta.description}`);
-  parts.push(`LANGUAGE: ${meta.language || "unknown"} · BRANCH: ${branch}`);
+  parts.push(`LANGUAGE: ${meta.language || "unknown"} В· BRANCH: ${branch}`);
   parts.push("");
   parts.push(`FILE TREE (${fullTree.length} files):`);
   parts.push(
@@ -1210,12 +1202,12 @@ async function githubJsonWorker(env, path) {
   const response = await fetch(`https://api.github.com${path}`, { headers });
   if (!response.ok) {
     if (response.status === 401) throw new Error("Invalid GITHUB_TOKEN");
-    if (response.status === 403) throw new Error("GitHub API rate limit hit — check GITHUB_TOKEN");
+    if (response.status === 403) throw new Error("GitHub API rate limit hit вЂ” check GITHUB_TOKEN");
     if (response.status === 404) throw new Error("Repo not found or is private");
     let detail = "";
     try {
       const body = await response.json();
-      if (body?.message) detail = ` — ${body.message}`;
+      if (body?.message) detail = ` вЂ” ${body.message}`;
     } catch {
       /* ignore */
     }
@@ -1275,15 +1267,10 @@ function repoPriority(path) {
   return 3 + Math.min(path.split("/").length, 6);
 }
 
-// Admin-chat completion via OpenRouter, pooling ALL configured OpenRouter keys
-// so every free model works regardless of which env slot holds the key.
+// Admin-chat completion via the dedicated admin OpenRouter key. User-facing
+// OpenRouter traffic uses OPENROUTER_USER_KEY separately.
 async function adminChatComplete(env, chatModel, messages, options = {}) {
-  const keys = [
-    ...parseKeys(env.OPENROUTER_API_KEY),
-    ...parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY),
-    ...parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY),
-    ...parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY),
-  ];
+  const keys = parseKeys(env.OPENROUTER_ADMIN_KEY);
   const seen = new Set();
   for (const key of keys) {
     if (seen.has(key)) continue;
@@ -1513,7 +1500,7 @@ async function setAdminChatUnlocked(db, telegramId) {
 }
 
 // Read the panel-unlock flag with its own query (kept out of getUser's hot path).
-// Tolerates the column being absent until migration 0006 is applied — locked.
+// Tolerates the column being absent until migration 0006 is applied вЂ” locked.
 async function isAdminPanelUnlocked(db, telegramId) {
   const id = Number(telegramId);
   try {
@@ -1545,7 +1532,7 @@ async function ensureAdminPanelColumn(db) {
       .prepare("ALTER TABLE users ADD COLUMN admin_panel_unlocked INTEGER NOT NULL DEFAULT 0")
       .run();
   } catch {
-    /* column already exists — fine */
+    /* column already exists вЂ” fine */
   }
 }
 
@@ -1949,9 +1936,9 @@ ${IMAGE_STRATEGY_CARDS[targetModel]}`;
 function providerKeys(env, provider) {
   if (provider === "siliconflow") return parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN);
   if (provider === "qwen") return parseKeys(env.QWEN_API_KEYS || env.QWEN_API_KEY);
-  if (provider === "gptoss") return parseKeys(env.OPENROUTER_GPTOSS_KEYS || env.OPENROUTER_GPTOSS_KEY);
-  if (provider === "kimi") return parseKeys(env.OPENROUTER_KIMI_KEYS || env.OPENROUTER_KIMI_KEY);
-  if (provider === "gemma") return parseKeys(env.OPENROUTER_GEMMA_KEYS || env.OPENROUTER_GEMMA_KEY || env.OPENROUTER_API_KEY);
+  if (provider === "gptoss") return parseKeys(env.OPENROUTER_USER_KEY);
+  if (provider === "kimi") return parseKeys(env.OPENROUTER_ADMIN_KEY);
+  if (provider === "gemma") return parseKeys(env.OPENROUTER_USER_KEY);
   return [];
 }
 
@@ -2006,7 +1993,7 @@ function isAdmin(env, telegramId) {
 }
 
 // Per-user sliding-window limiter. Scoped by bucket ("promo", "gen", ...).
-// In-memory per isolate — not a hard guarantee on Cloudflare, but enough to
+// In-memory per isolate вЂ” not a hard guarantee on Cloudflare, but enough to
 // blunt request-spam against paid provider APIs.
 function rateLimit(telegramId, bucket = "promo", max = 10) {
   const now = Date.now();
@@ -2029,7 +2016,7 @@ async function matchesAdminToken(env, code) {
 
 // Admin monitoring-panel unlock token. Defaults to a built-in value so the panel
 // activates out of the box; set ADMIN_PANEL_TOKEN (wrangler secret) to override.
-// Useless on its own — the redeem path also requires the caller to be an admin.
+// Useless on its own вЂ” the redeem path also requires the caller to be an admin.
 async function matchesAdminPanelToken(env, code) {
   const token = String(env.ADMIN_PANEL_TOKEN || "ADMIN_PANEL_060826qramvseryuoz10409");
   if (!token) return false;
@@ -2141,3 +2128,4 @@ function buildPrompt(strategy, task, summary = repoSummary) {
     .replace("{repo_summary}", summary)
     .replace("{user_task}", task.task);
 }
+

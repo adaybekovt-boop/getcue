@@ -1,10 +1,8 @@
 // Generation core: build the engineered prompt, then generate via a rotating
 // multi-provider key pool. Fallback chain (see ./gemini/keyManager.js):
 //   free  -> gemini/siliconflow/qwen
-//   paid  -> gptoss first, then free providers
-//   admin -> kimi first, then paid/free providers
-// The OpenRouter pools each rotate through their own keys on 429 before the
-// chain advances to the next provider.
+//   paid  -> GPT-OSS 20B through OPENROUTER_USER_KEY, then free providers
+//   admin -> OPENROUTER_ADMIN_KEY first, then paid/free providers
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import { generatorPrompt } from "./config/generatorPrompt.js";
@@ -28,7 +26,7 @@ const OR_HEADERS = { "HTTP-Referer": "https://getcue.app", "X-Title": "Cue" };
 
 // Per-provider request config. `type: "gemini"` uses @google/genai; everything
 // else is OpenAI-compatible chat completions at the given baseURL. gptoss/kimi/
-// gemma all hit OpenRouter, each backed by its own rotating key pool.
+// gemma all hit OpenRouter, backed by the user/admin account-level keys.
 const PROVIDER_CONFIG = {
   gemini: { type: "gemini", model: MODEL_ID },
   siliconflow: {
@@ -39,7 +37,7 @@ const PROVIDER_CONFIG = {
   gptoss: {
     type: "openai",
     baseURL: OPENROUTER_BASE,
-    model: "openai/gpt-oss-120b",
+    model: "openai/gpt-oss-20b:free",
     headers: OR_HEADERS,
   },
   kimi: {
@@ -169,8 +167,8 @@ async function generateOnce(key, provider, prompt) {
   return text.trim();
 }
 
-// OpenRouter key pools that can serve an arbitrary free model (admin override).
-const OR_PROVIDERS = ["gptoss", "kimi", "gemma"];
+// Admin model override always uses the admin OpenRouter key.
+const OR_PROVIDERS = ["kimi"];
 const _orClients = new Map();
 function openrouterClient(key) {
   let client = _orClients.get(key);
@@ -187,8 +185,8 @@ function openrouterClient(key) {
   return client;
 }
 
-// Admin-only: generate with a SPECIFIC OpenRouter model, rotating across all
-// OpenRouter key pools on rotate-worthy failures. Used when an admin explicitly
+// Admin-only: generate with a SPECIFIC OpenRouter model, using the admin
+// OpenRouter key on rotate-worthy failures. Used when an admin explicitly
 // picks the generation model on the generate screen.
 async function generateWithModel(modelId, prompt) {
   let lastError;

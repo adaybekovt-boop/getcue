@@ -1,6 +1,5 @@
 // Image-prompt generation via Gemma 4 31B (vision) on OpenRouter.
-// Uses the rotating 'gemma' key pool (429 -> next key). If that pool isn't
-// configured, falls back to a single OPENROUTER_API_KEY env var.
+// Uses OPENROUTER_USER_KEY through the logical 'gemma' provider.
 import OpenAI from "openai";
 import { getActiveKeyForProvider, reportError } from "../../src/gemini/keyManager.js";
 import { IMAGE_STRATEGY_CARDS } from "../../src/config/imageStrategyCards.js";
@@ -8,7 +7,7 @@ import { IMAGE_STRATEGY_CARDS } from "../../src/config/imageStrategyCards.js";
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const GEMMA_MODEL = "google/gemma-4-31b-it:free";
 const OR_HEADERS = { "HTTP-Referer": "https://getcue.app", "X-Title": "Cue" };
-const MAX_ROTATIONS = 6; // > gemma pool size; loop also ends when pool empty
+const MAX_ROTATIONS = 2; // one account-level key, with one retry after cooldown checks
 
 function buildSystemPrompt(task, targetModel) {
   return `You are an expert image-generation prompt engineer.
@@ -51,15 +50,9 @@ function isRateLimit(error) {
   return /\b429\b/.test(error?.message || "");
 }
 
-// Next usable key: gemma pool (rotatable) first, else single env fallback.
+// Next usable user OpenRouter key.
 function pickKey() {
-  try {
-    return { key: getActiveKeyForProvider("gemma").key, provider: "gemma" };
-  } catch (poolEmpty) {
-    const fb = (process.env.OPENROUTER_API_KEY || "").trim();
-    if (fb) return { key: fb, provider: null }; // single fallback, no rotation
-    throw poolEmpty;
-  }
+  return { key: getActiveKeyForProvider("gemma").key, provider: "gemma" };
 }
 
 export async function generateImagePrompt({ imageBase64, targetModel, task }) {
@@ -92,9 +85,8 @@ export async function generateImagePrompt({ imageBase64, targetModel, task }) {
       return text.trim();
     } catch (error) {
       if (!isRateLimit(error)) throw error;
-      if (active.provider) reportError(active.key, active.provider, error);
+      reportError(active.key, active.provider, error);
       lastError = error;
-      if (!active.provider) break; // single fallback key can't rotate
     }
   }
   throw new Error("Gemma vision unavailable: gemma pool rate-limited");

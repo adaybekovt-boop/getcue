@@ -1,12 +1,12 @@
-// Helpers for the admin monitoring panel. Self-contained on purpose: it reads
+﻿// Helpers for the admin monitoring panel. Self-contained on purpose: it reads
 // API keys straight from the environment (mirroring the parsing rules in
 // src/gemini/keyManager.js) and queries each provider's public status endpoint,
 // so it never mutates the live rotating-pool state used by generation.
 //
 // Three capabilities back the /api/admin/panel routes:
-//   1. getKeyLimits()        — usage / remaining quota for stored keys.
-//   2. getOpenRouterModels() — which configured models OpenRouter currently lists.
-//   3. testModels()          — a minimal generation per configured model.
+//   1. getKeyLimits()        вЂ” usage / remaining quota for stored keys.
+//   2. getOpenRouterModels() вЂ” which configured models OpenRouter currently lists.
+//   3. testModels()          вЂ” a minimal generation per configured model.
 import { getModels } from "../services/openrouterModels.js";
 import { openRouterChat } from "../services/adminChat.js";
 
@@ -26,9 +26,8 @@ const KEY_PROVIDERS = [
     kind: "siliconflow",
     exclude: ["sk-or-"],
   },
-  { label: "OpenRouter · GPT-OSS", multi: "OPENROUTER_GPTOSS_KEYS", single: "OPENROUTER_GPTOSS_KEY", kind: "openrouter" },
-  { label: "OpenRouter · Kimi", multi: "OPENROUTER_KIMI_KEYS", single: "OPENROUTER_KIMI_KEY", kind: "openrouter" },
-  { label: "OpenRouter · Gemma", multi: "OPENROUTER_GEMMA_KEYS", single: "OPENROUTER_GEMMA_KEY", kind: "openrouter" },
+  { label: "OpenRouter - User", multi: "OPENROUTER_USER_KEY", single: "OPENROUTER_USER_KEY", kind: "openrouter" },
+  { label: "OpenRouter - Admin", multi: "OPENROUTER_ADMIN_KEY", single: "OPENROUTER_ADMIN_KEY", kind: "openrouter" },
   { label: "Qwen", multi: "QWEN_API_KEYS", single: "QWEN_API_KEY", kind: "qwen" },
 ];
 
@@ -53,8 +52,8 @@ function parseKeys(multiVar, singleVar, exclude = []) {
 // Show only enough of a key to identify it; never return the secret itself.
 function maskKey(key) {
   if (!key) return "";
-  if (key.length <= 10) return `…${key.slice(-3)}`;
-  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+  if (key.length <= 10) return `вЂ¦${key.slice(-3)}`;
+  return `${key.slice(0, 4)}вЂ¦${key.slice(-4)}`;
 }
 
 async function fetchJson(url, options = {}) {
@@ -74,7 +73,7 @@ async function fetchJson(url, options = {}) {
   }
 }
 
-// ── 1. Key limit verification ──────────────────────────────────────────────
+// в”Ђв”Ђ 1. Key limit verification в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 // Per stored key: configured status plus, where the provider exposes it, live
 // usage / remaining quota. Gemini and Qwen have no public per-key quota API, so
 // they are reported as configured with quota "unknown".
@@ -134,7 +133,7 @@ export async function getKeyLimits() {
       } else if (p.kind === "openrouter") {
         entries = await Promise.all(keys.map(checkOpenRouterKey));
       } else {
-        // gemini / qwen — no public per-key quota endpoint.
+        // gemini / qwen вЂ” no public per-key quota endpoint.
         entries = keys.map((k) => ({ key: maskKey(k), status: "no_quota_api", remaining: null }));
       }
       return { provider: p.label, kind: p.kind, configured: keys.length, keys: entries };
@@ -143,7 +142,7 @@ export async function getKeyLimits() {
   return { providers, checkedAt: new Date().toISOString() };
 }
 
-// ── 2. OpenRouter model check ──────────────────────────────────────────────
+// в”Ђв”Ђ 2. OpenRouter model check в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 // Lists each configured model and marks it enabled (live on OpenRouter) or
 // disabled (configured here but not currently offered upstream).
 export async function getOpenRouterModels() {
@@ -179,7 +178,7 @@ export async function getOpenRouterModels() {
   };
 }
 
-// ── 3. Model operability test ──────────────────────────────────────────────
+// в”Ђв”Ђ 3. Model operability test в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
 // Fires a tiny generation at each configured model and reports success/latency
 // or the error. Runs in parallel; failures are isolated per model.
 async function testOneModel(model) {
@@ -208,3 +207,4 @@ export async function testModels() {
   const results = await Promise.all(getModels().map(testOneModel));
   return { results, checkedAt: new Date().toISOString() };
 }
+

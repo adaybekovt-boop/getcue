@@ -2,12 +2,12 @@
 // rotates keys out on rate-limit / transient errors.
 // (Filename kept as keyManager.js for import compatibility.)
 //
-// Fallback order: free users -> gemini/siliconflow/qwen, paid users -> gptoss
-// first, admins -> kimi first. Gemma is reserved for image-understanding flows.
-// Each provider loads keys from its own env var(s). The three OpenRouter
-// providers (gptoss/kimi/gemma) are model-specific rotating pools. Keys are
-// validated by prefix where the format is known; `exclude` stops one provider's
-// prefix from swallowing another's (SiliconFlow "sk-" must NOT match "sk-or-").
+// Fallback order: free users -> gemini/siliconflow/qwen, paid users -> GPT-OSS
+// via the user OpenRouter key, admins -> admin OpenRouter key first. Gemma is
+// reserved for image-understanding flows and also uses the user OpenRouter key.
+// Keys are validated by prefix where the format is known; `exclude` stops one
+// provider's prefix from swallowing another's (SiliconFlow "sk-" must NOT match
+// "sk-or-").
 //
 // Per-key state (in-memory, module-level):
 //   rpmCooldownUntil — timestamp; key is in short cooldown until then
@@ -25,10 +25,10 @@ const PROVIDERS = [
     prefix: "sk-",
     exclude: ["sk-or-"],
   },
-  // OpenRouter model-specific rotating pools (all keys are sk-or-...).
-  { name: "gptoss", multi: "OPENROUTER_GPTOSS_KEYS", single: "OPENROUTER_GPTOSS_KEY", prefix: "sk-or-" },
-  { name: "kimi", multi: "OPENROUTER_KIMI_KEYS", single: "OPENROUTER_KIMI_KEY", prefix: "sk-or-" },
-  { name: "gemma", multi: "OPENROUTER_GEMMA_KEYS", single: "OPENROUTER_GEMMA_KEY", prefix: "sk-or-" },
+  // OpenRouter has two account-level keys: user-facing traffic and admin-only traffic.
+  { name: "gptoss", multi: "OPENROUTER_USER_KEY", single: "OPENROUTER_USER_KEY", prefix: "sk-or-" },
+  { name: "kimi", multi: "OPENROUTER_ADMIN_KEY", single: "OPENROUTER_ADMIN_KEY", prefix: "sk-or-" },
+  { name: "gemma", multi: "OPENROUTER_USER_KEY", single: "OPENROUTER_USER_KEY", prefix: "sk-or-" },
   { name: "qwen", multi: "QWEN_API_KEYS", single: "QWEN_API_KEY" },
 ];
 
@@ -82,8 +82,8 @@ function loadPools() {
   if (total === 0) {
     throw new Error(
       "No valid API keys found. Set at least one of: GEMINI_API_KEYS (AIza...), " +
-        "SILICONFLOW_API_KEYS (sk-...), OPENROUTER_GPTOSS_KEYS / OPENROUTER_KIMI_KEYS / " +
-        "OPENROUTER_GEMMA_KEYS (sk-or-...), or QWEN_API_KEY in .env."
+        "SILICONFLOW_API_KEYS (sk-...), OPENROUTER_USER_KEY / OPENROUTER_ADMIN_KEY " +
+        "(sk-or-...), or QWEN_API_KEY in .env."
     );
   }
   return pools;

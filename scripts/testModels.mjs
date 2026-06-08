@@ -79,11 +79,11 @@ async function run() {
   ]);
 
   results.push([
-    "GPT-OSS-120B",
+    "GPT-OSS 20B",
     await testOpenAICompatible({
-      key: firstKey("OPENROUTER_GPTOSS_KEYS", "OPENROUTER_GPTOSS_KEY"),
+      key: firstKey("OPENROUTER_USER_KEY"),
       baseURL: "https://openrouter.ai/api/v1",
-      model: "openai/gpt-oss-120b",
+      model: "openai/gpt-oss-20b:free",
       headers: OR_HEADERS,
     }).catch((error) => ({ ok: false, err: errStr(error) })),
   ]);
@@ -91,7 +91,7 @@ async function run() {
   results.push([
     "Kimi K2.6",
     await testOpenAICompatible({
-      key: firstKey("OPENROUTER_KIMI_KEYS", "OPENROUTER_KIMI_KEY"),
+      key: firstKey("OPENROUTER_ADMIN_KEY"),
       baseURL: "https://openrouter.ai/api/v1",
       model: "moonshotai/kimi-k2.6",
       headers: OR_HEADERS,
@@ -101,7 +101,7 @@ async function run() {
   results.push([
     "Gemma 4 31B",
     await testOpenAICompatible({
-      key: firstKey("OPENROUTER_GEMMA_KEYS", "OPENROUTER_GEMMA_KEY"),
+      key: firstKey("OPENROUTER_USER_KEY"),
       baseURL: "https://openrouter.ai/api/v1",
       model: "google/gemma-4-31b-it:free",
       headers: OR_HEADERS,

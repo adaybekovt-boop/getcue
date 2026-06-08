@@ -1,6 +1,5 @@
-// Raw multi-turn passthrough to any OpenRouter model (admin chat). Rotates
-// across ALL OpenRouter key pools (gptoss + kimi + gemma) on 429 for maximum
-// free-tier throughput; fails only when every key is rate-limited.
+// Raw multi-turn passthrough to any OpenRouter model (admin chat). Uses the
+// dedicated admin OpenRouter key so user-facing traffic has its own budget.
 // Admin-only — callers MUST gate on admin id + unlock flag first, and MUST pass
 // a model already validated as free (see openrouterModels.isAllowedModel).
 // `messages` may contain string content or OpenAI-style content blocks (for
@@ -10,7 +9,7 @@ import { getActiveKeyForProvider, reportError } from "../../src/gemini/keyManage
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const OR_HEADERS = { "HTTP-Referer": "https://getcue.app", "X-Title": "Cue" };
-const OR_PROVIDERS = ["gptoss", "kimi", "gemma"]; // all hold OpenRouter keys
+const OR_PROVIDERS = ["kimi"]; // dedicated admin OpenRouter key
 const MAX_ROTATIONS = 12;
 const DEFAULT_MODEL = "moonshotai/kimi-k2.6:free";
 
@@ -36,7 +35,7 @@ function isRateLimit(error) {
   return /\b429\b/.test(error?.message || "");
 }
 
-// First usable key across the OpenRouter pools, or null when all are cooled.
+// First usable admin OpenRouter key, or null when cooled/missing.
 function pickKey() {
   for (const provider of OR_PROVIDERS) {
     try {
