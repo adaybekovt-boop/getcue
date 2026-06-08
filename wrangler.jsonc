@@ -1,12 +1,19 @@
 {
-  // Cloudflare deploy target is now the edge Worker (worker/edge.js): it serves
-  // the static SPA from client/dist and proxies /api/* to the Node Express
-  // backend. Set API_ORIGIN to your Node host (e.g. `wrangler secret put
-  // API_ORIGIN`). The previous full Workers implementation is preserved,
-  // untouched, at worker/index.js.archived and is no longer deployed.
+  // Cloudflare Worker (full app): serves the SPA from client/dist and runs the
+  // entire /api on the edge, backed by D1. Includes the admin multi-platform chat
+  // (OpenRouter + Groq + Gemini), vision, and image generation. The pre-port
+  // version is preserved at worker/index.js.archived.
+  //
+  // Required secrets (set with `wrangler secret put <NAME>`):
+  //   BOT_TOKEN, WEBHOOK_SECRET, ADMIN_TELEGRAM_IDS, ADMIN_CHAT_TOKEN,
+  //   OPENROUTER_USER_KEY, OPENROUTER_ADMIN_KEY, GEMINI_API_KEYS,
+  //   GROQ_GPT_KEY, GROQ_QWEN_KEY, GROQ_META_KEY,
+  //   GEMINI_FLASH_LITE_KEY, GEMINI_FLASH_KEY, GEMINI_FRONTIER_KEY, GEMINI_IMAGE_KEY
+  // After deploy, apply the D1 migrations (adds platform/effort columns):
+  //   wrangler d1 migrations apply getcue --remote
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "getcue",
-  "main": "worker/edge.js",
+  "main": "worker/index.js",
   "compatibility_date": "2026-06-07",
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "4779193285f4b7225a52cfb160958347",
@@ -18,6 +25,14 @@
   "observability": {
     "enabled": true
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "getcue",
+      "database_id": "0c8af186-3982-4a2a-b456-087ebd99ae68",
+      "migrations_dir": "./migrations"
+    }
+  ],
   "vars": {
     "NODE_ENV": "production"
   }
