@@ -10,9 +10,11 @@ import {
   IconCamera,
   IconX,
   IconChevronDown,
-  IconListCheck,
   IconPencilPlus,
   IconMessage2,
+  IconBrandGithub,
+  IconBulb,
+  IconSearch,
 } from "@tabler/icons-react";
 import WebApp from "@twa-dev/sdk";
 import { api } from "../api.js";
@@ -20,7 +22,9 @@ import ModelChatSheet from "../components/ModelChatSheet.jsx";
 import { prettyTitle } from "../modelName.js";
 
 const SLASH_COMMANDS = [
-  { cmd: "/plan", hint: "Deep multi-step plan with ready prompts" },
+  { cmd: "/github", icon: IconBrandGithub, hint: "Load a repo so the model can read its code" },
+  { cmd: "/plan", icon: IconBulb, hint: "Deep planning — turns a request into an executable plan" },
+  { cmd: "/critic", icon: IconSearch, hint: "Honest, substance-only code review" },
 ];
 
 const MAX_ATT = 3;
@@ -96,6 +100,7 @@ export default function AdminChatScreen({ me }) {
 
   const [activeChatId, setActiveChatId] = useState(null);
   const [model, setModel] = useState("");
+  const [repo, setRepo] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState([]);
@@ -166,6 +171,7 @@ export default function AdminChatScreen({ me }) {
   function startNewChat(mId) {
     setActiveChatId(null);
     setModel(mId);
+    setRepo(null);
     setMessages([]);
     setPending([]);
     setError(null);
@@ -180,6 +186,7 @@ export default function AdminChatScreen({ me }) {
       setMessages(Array.isArray(d.messages) ? d.messages.map(mapMsg) : []);
       setActiveChatId(id);
       if (d.model) setModel(d.model);
+      setRepo(d.repo || null);
       setPending([]);
       setView("chat");
     } catch {
@@ -310,6 +317,7 @@ export default function AdminChatScreen({ me }) {
       });
       setMessages((prev) => [...prev, { role: "assistant", content: data.reply, atts: [] }]);
       if (data.model) setModel(data.model);
+      if (data.repo !== undefined) setRepo(data.repo || null);
       refreshChats();
     } catch (e) {
       if (e.status === 403) setError("Access revoked.");
@@ -437,6 +445,14 @@ export default function AdminChatScreen({ me }) {
         </button>
       </header>
 
+      {repo && (
+        <div className="ac-repo-bar">
+          <IconBrandGithub size={14} stroke={1.8} />
+          <span className="ac-repo-name">{repo}</span>
+          <span className="ac-repo-note">loaded · model can read this code</span>
+        </div>
+      )}
+
       <div className="ac-messages">
         {messages.length === 0 && !loading && (
           <div className="ac-empty">
@@ -468,6 +484,11 @@ export default function AdminChatScreen({ me }) {
                 )}
               </div>
             )}
+            <div className="ace-cmds">
+              <span className="ace-cmd"><IconBrandGithub size={13} stroke={1.8} /> /github</span>
+              <span className="ace-cmd"><IconBulb size={13} stroke={1.8} /> /plan</span>
+              <span className="ace-cmd"><IconSearch size={13} stroke={1.8} /> /critic</span>
+            </div>
           </div>
         )}
         {messages.map((m, i) => (
@@ -515,18 +536,21 @@ export default function AdminChatScreen({ me }) {
       <div className="ac-input-wrap">
         {slashTyping && (
           <div className="ac-slash-row">
-            {SLASH_COMMANDS.filter((c) => c.cmd.startsWith(input)).map((c) => (
-              <button
-                key={c.cmd}
-                type="button"
-                className="ac-slash-item"
-                onClick={() => setInput(c.cmd + " ")}
-              >
-                <IconListCheck size={15} stroke={1.8} />
-                <span className="acs-cmd">{c.cmd}</span>
-                <span className="acs-hint">{c.hint}</span>
-              </button>
-            ))}
+            {SLASH_COMMANDS.filter((c) => c.cmd.startsWith(input)).map((c) => {
+              const Icon = c.icon || IconSearch;
+              return (
+                <button
+                  key={c.cmd}
+                  type="button"
+                  className="ac-slash-item"
+                  onClick={() => setInput(c.cmd + " ")}
+                >
+                  <Icon size={15} stroke={1.8} />
+                  <span className="acs-cmd">{c.cmd}</span>
+                  <span className="acs-hint">{c.hint}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 

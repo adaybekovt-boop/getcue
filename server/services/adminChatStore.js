@@ -21,7 +21,7 @@ const selectChats = db.prepare(
    LIMIT ?`
 );
 const selectChat = db.prepare(
-  "SELECT id, telegram_id, title, model FROM admin_chats WHERE id = ?"
+  "SELECT id, telegram_id, title, model, repo, repo_context FROM admin_chats WHERE id = ?"
 );
 const touchChatStmt = db.prepare(
   "UPDATE admin_chats SET updated_at = strftime('%s','now') WHERE id = ?"
@@ -31,6 +31,9 @@ const renameChatStmt = db.prepare(
 );
 const setModelStmt = db.prepare(
   "UPDATE admin_chats SET model = ?, updated_at = strftime('%s','now') WHERE id = ?"
+);
+const setRepoStmt = db.prepare(
+  "UPDATE admin_chats SET repo = ?, repo_context = ?, updated_at = strftime('%s','now') WHERE id = ?"
 );
 const deleteChatRow = db.prepare(
   "DELETE FROM admin_chats WHERE id = ? AND telegram_id = ?"
@@ -81,6 +84,11 @@ export function addMessage(chatId, role, content, attachments) {
 
 export function setChatModel(chatId, model) {
   setModelStmt.run(model, Number(chatId));
+}
+
+// Store the loaded GitHub repo + its fetched code context for this chat.
+export function setChatRepo(chatId, repo, context) {
+  setRepoStmt.run(repo, context, Number(chatId));
 }
 
 // Bump updated_at; set the title from the first user message if still default.

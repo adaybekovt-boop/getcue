@@ -193,6 +193,18 @@ The user will describe a goal. Produce a COMPLETE, deeply-reasoned execution pla
 5. Verification checklist.
 
 Be exhaustive and specific. No filler, no apologies. Use the user's language.`;
+const CRITIC_SYSTEM_PROMPT = `You are a brutally honest senior code reviewer auditing the provided project/code. Surface ONLY substantive problems: real bugs, security holes, race conditions, data-loss risks, broken edge cases, incorrect logic, missing validation/auth checks, performance traps, and violations of the project's own stated contracts.
+
+Rules:
+- Evidence over opinion. Every issue must point to a concrete file/function/area and explain what breaks.
+- No subjective style nits unless they cause an actual bug or concrete maintainability failure.
+- Severity-rank each finding: [CRITICAL], [HIGH], [MEDIUM], [LOW].
+- For each finding use: [SEVERITY] short title — file/area — problem — why it breaks — concrete fix.
+- Finish with "Top 3 to fix first" in priority order.`;
+const REPO_CONTEXT_MAX_FILES = 24;
+const REPO_CONTEXT_MAX_TOTAL_CHARS = 36_000;
+const REPO_CONTEXT_PER_FILE_CHARS = 9_000;
+const REPO_CONTEXT_MAX_BLOB_BYTES = 100_000;
 const QWEN_MODEL = "qwen-max";
 const QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const PROMO_HITS = new Map();
@@ -513,6 +525,7 @@ async function handleAdminChatMessages(request, env, chatId) {
     messages: await getAdminChatMessages(env.DB, chat.id),
     model: chat.model,
     title: chat.title,
+    repo: chat.repo || null,
   });
 }
 
@@ -553,6 +566,41 @@ async function handleAdminChatSend(request, env, chatId) {
     return json({ error: "empty_message" }, 400);
   }
 
+  const typed = content.trim();
+  const command = parseAdminCommand(typed);
+
+  if (command?.cmd === "github") {
+    if (!command.arg) {
+      return json({
+        reply: "Usage: /github <repo url or owner/repo>",
+        model: chatModelId,
+        repo: chat.repo || null,
+      });
+    }
+    const repoArg = command.arg.includes("github.com")
+      ? command.arg
+      : `https://github.com/${command.arg}`;
+    try {
+      const info = await fetchRepoContext(env, repoArg);
+      await setAdminChatRepo(env.DB, chat.id, info.repo, info.context);
+      const kb = Math.round(info.chars / 1024);
+      const reply =
+        `Loaded ${info.repo} — ${info.fileCount} of ${info.totalFiles} files in context (~${kb} KB).\n\n` +
+        "Ask anything about the code, run /plan <task> for an implementation plan, or /critic for an honest review.";
+      await addAdminChatMessage(env.DB, chat.id, "user", typed, []);
+      await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
+      await touchAdminChatMaybeTitle(env.DB, chat.id, info.repo);
+      return json({ reply, model: chatModelId, repo: info.repo });
+    } catch (error) {
+      console.error("[AdminChat] /github failed:", error);
+      const reply = `Couldn't load that repo: ${error.message}`;
+      await addAdminChatMessage(env.DB, chat.id, "user", typed, []);
+      await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
+      await touchAdminChatMaybeTitle(env.DB, chat.id, typed);
+      return json({ reply, model: chatModelId, repo: chat.repo || null });
+    }
+  }
+
   const prior = (await getAdminChatMessages(env.DB, chat.id))
     .map((message) => ({
       role: message.role,
@@ -565,36 +613,49 @@ async function handleAdminChatSend(request, env, chatId) {
     }))
     .filter((message) => message.content.length);
 
-  const typed = content.trim();
   const blocks = buildAdminAttachmentBlocks(att.list);
+  let taskText = typed;
+  const systemParts = [];
+  if (command?.cmd === "plan") {
+    systemParts.push(PLAN_SYSTEM_PROMPT);
+    taskText =
+      command.arg ||
+      "Produce a deep implementation plan for the project/feature discussed in this conversation.";
+  }
+  if (command?.cmd === "critic") {
+    systemParts.push(CRITIC_SYSTEM_PROMPT);
+    taskText =
+      command.arg ||
+      (chat.repo
+        ? `Review the ${chat.repo} repository loaded in context.`
+        : "Review the code and project discussed in this conversation.");
+  }
+  if (chat.repo_context) {
+    systemParts.push(
+      `REPOSITORY IN CONTEXT — the user loaded this repo with /github; use it as the source of truth when answering:\n\n${chat.repo_context}`
+    );
+  }
   const newUser = blocks.length
     ? {
         role: "user",
         content: [
           {
             type: "text",
-            text: typed || "Please respond to the attached image(s) and file(s).",
+            text: taskText || "Please respond to the attached image(s) and file(s).",
           },
           ...blocks,
         ],
       }
-    : { role: "user", content: typed };
+    : { role: "user", content: taskText };
 
-  let planMode = false;
-  if (typeof newUser.content === "string" && /^\/plan\b/i.test(newUser.content.trim())) {
-    planMode = true;
-    newUser.content =
-      newUser.content.trim().replace(/^\/plan\b\s*/i, "") ||
-      "Plan the project we discussed above.";
-  }
-  const outgoing = planMode
-    ? [{ role: "system", content: PLAN_SYSTEM_PROMPT }, ...prior, newUser]
+  const outgoing = systemParts.length
+    ? [{ role: "system", content: systemParts.join("\n\n---\n\n") }, ...prior, newUser]
     : [...prior, newUser];
 
   try {
     const reply = await adminChatComplete(env, chatModel, outgoing, {
-      maxTokens: planMode ? 8000 : 4096,
-      temperature: planMode ? 0.4 : 0.5,
+      maxTokens: command?.cmd === "plan" ? 8000 : 4096,
+      temperature: command?.cmd === "plan" ? 0.4 : 0.5,
     });
     if (!reply) throw new Error(`${chatModel.label} unavailable`);
     const attMeta = att.list.map((item) => ({
@@ -605,7 +666,7 @@ async function handleAdminChatSend(request, env, chatId) {
     await addAdminChatMessage(env.DB, chat.id, "user", typed, attMeta);
     await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
     await touchAdminChatMaybeTitle(env.DB, chat.id, typed || attMeta[0]?.name || "");
-    return json({ reply, model: chatModelId });
+    return json({ reply, model: chatModelId, repo: chat.repo || null });
   } catch (error) {
     console.error("[AdminChat] failed:", error);
     return json({ error: "chat_failed" }, 502);
@@ -777,6 +838,189 @@ function buildAdminAttachmentBlocks(attachments) {
       text: `Attached file "${item.name || "file"}":\n\n${decodeTextAttachment(item)}`,
     };
   });
+}
+
+function parseAdminCommand(content) {
+  const text = String(content || "").trimStart();
+  if (!text.startsWith("/")) return null;
+  const match = text.match(/^\/(\w[\w-]*)\s*([\s\S]*)$/);
+  if (!match) return null;
+  const cmd = match[1].toLowerCase();
+  if (!["github", "plan", "critic"].includes(cmd)) return null;
+  return { cmd, arg: (match[2] || "").trim() };
+}
+
+async function fetchRepoContext(env, repoUrl) {
+  const { owner, repo } = parseGithubRepoUrlLoose(repoUrl);
+  const meta = await githubJsonWorker(env, `/repos/${owner}/${repo}`);
+  const branch = meta.default_branch || "main";
+  const ref = await githubJsonWorker(env, `/repos/${owner}/${repo}/git/refs/heads/${branch}`);
+  const sha = ref?.object?.sha;
+  if (!sha) throw new Error("Could not resolve repo HEAD.");
+
+  const treeResp = await githubJsonWorker(
+    env,
+    `/repos/${owner}/${repo}/git/trees/${sha}?recursive=1`
+  );
+  const allBlobs = (treeResp.tree || []).filter((entry) => entry.type === "blob" && entry.path);
+  const fullTree = allBlobs
+    .map((entry) => entry.path)
+    .filter((path) => !isRepoNoise(path))
+    .sort((a, b) => a.localeCompare(b));
+  const candidates = allBlobs
+    .filter(
+      (entry) =>
+        !isRepoNoise(entry.path) &&
+        isCodePath(entry.path) &&
+        (entry.size == null || entry.size <= REPO_CONTEXT_MAX_BLOB_BYTES)
+    )
+    .sort((a, b) => repoPriority(a.path) - repoPriority(b.path) || a.path.localeCompare(b.path));
+
+  const parts = [];
+  parts.push(`REPOSITORY: ${owner}/${repo}`);
+  if (meta.description) parts.push(`DESCRIPTION: ${meta.description}`);
+  parts.push(`LANGUAGE: ${meta.language || "unknown"} · BRANCH: ${branch}`);
+  parts.push("");
+  parts.push(`FILE TREE (${fullTree.length} files):`);
+  parts.push(
+    fullTree.slice(0, 200).join("\n") +
+      (fullTree.length > 200 ? `\n... (${fullTree.length - 200} more)` : "")
+  );
+  parts.push("");
+  parts.push("FILE CONTENTS:");
+
+  let total = parts.join("\n").length;
+  let used = 0;
+  let omitted = 0;
+  for (const blobRef of candidates) {
+    if (used >= REPO_CONTEXT_MAX_FILES || total >= REPO_CONTEXT_MAX_TOTAL_CHARS) {
+      omitted++;
+      continue;
+    }
+    let content = "";
+    try {
+      const blob = await githubJsonWorker(env, `/repos/${owner}/${repo}/git/blobs/${blobRef.sha}`);
+      content = decodeBase64Utf8(blob.content);
+    } catch {
+      continue;
+    }
+    if (content.includes(String.fromCharCode(0))) continue;
+    let body = content;
+    let note = "";
+    if (body.length > REPO_CONTEXT_PER_FILE_CHARS) {
+      body = body.slice(0, REPO_CONTEXT_PER_FILE_CHARS);
+      note = `\n... [truncated; ${content.length} chars total]`;
+    }
+    const block = `\n===== ${blobRef.path} =====\n${body}${note}\n`;
+    if (total + block.length > REPO_CONTEXT_MAX_TOTAL_CHARS && used > 0) {
+      omitted++;
+      continue;
+    }
+    parts.push(block);
+    total += block.length;
+    used++;
+  }
+  if (omitted > 0) {
+    parts.push(`\n[${omitted} more source files omitted to fit the context window]`);
+  }
+  return {
+    repo: `${owner}/${repo}`,
+    context: parts.join("\n"),
+    fileCount: used,
+    totalFiles: fullTree.length,
+    chars: total,
+  };
+}
+
+function parseGithubRepoUrlLoose(repoUrl) {
+  const raw = String(repoUrl || "").trim();
+  if (!raw) throw new Error("Repo URL is required (e.g. https://github.com/owner/repo).");
+  const normalized = raw.includes("github.com") ? raw : `https://github.com/${raw}`;
+  const match = normalized
+    .replace(/^git@github\.com:/, "github.com/")
+    .match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^/\s]+)\/([^/\s#?]+)/i);
+  if (!match) throw new Error(`Not a recognisable GitHub repo URL: "${repoUrl}"`);
+  const owner = match[1];
+  const repo = match[2].replace(/\.git$/i, "");
+  if (!/^[A-Za-z0-9._-]+$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo)) {
+    throw new Error(`Not a recognisable GitHub repo URL: "${repoUrl}"`);
+  }
+  return { owner, repo };
+}
+
+async function githubJsonWorker(env, path) {
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "Cue",
+  };
+  if (env.GITHUB_TOKEN) headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  const response = await fetch(`https://api.github.com${path}`, { headers });
+  if (!response.ok) {
+    if (response.status === 401) throw new Error("Invalid GITHUB_TOKEN");
+    if (response.status === 403) throw new Error("GitHub API rate limit hit — check GITHUB_TOKEN");
+    if (response.status === 404) throw new Error("Repo not found or is private");
+    let detail = "";
+    try {
+      const body = await response.json();
+      if (body?.message) detail = ` — ${body.message}`;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(`GitHub API error ${response.status}${detail}`);
+  }
+  return response.json();
+}
+
+function decodeBase64Utf8(content) {
+  const clean = String(content || "").replace(/\n/g, "");
+  const binary = atob(clean);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+
+function repoExt(path) {
+  const base = path.split("/").pop() || "";
+  const idx = base.lastIndexOf(".");
+  return idx >= 0 ? base.slice(idx + 1).toLowerCase() : "";
+}
+
+function isCodePath(path) {
+  return new Set([
+    "js","jsx","ts","tsx","mjs","cjs","py","go","rs","java","rb","php","c","cc",
+    "cpp","h","hpp","cs","swift","kt","dart","scala","sh","bash","sql","vue",
+    "svelte","astro","css","scss","less","html","json","jsonc","yaml","yml",
+    "toml","md","txt","gradle","xml",
+  ]).has(repoExt(path));
+}
+
+function isRepoNoise(path) {
+  const lower = path.toLowerCase();
+  const noiseDirs = [
+    "node_modules/",".git/","dist/","build/","out/",".next/",".wrangler/",
+    "vendor/","coverage/",".dart_tool/",".venv/","__pycache__/",
+  ];
+  if (noiseDirs.some((dir) => lower.includes(dir))) return true;
+  if (/(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.min\.(js|css))$/i.test(path)) {
+    return true;
+  }
+  return new Set([
+    "png","jpg","jpeg","gif","svg","ico","webp","bmp","ttf","woff","woff2",
+    "pdf","zip","gz","tar","mp4","mov","mp3","wasm","lock",
+  ]).has(repoExt(path));
+}
+
+function repoPriority(path) {
+  const base = (path.split("/").pop() || "").toLowerCase();
+  if (/^readme/i.test(base)) return 0;
+  if (
+    ["package.json","wrangler.jsonc","wrangler.toml","go.mod","cargo.toml",
+     "requirements.txt","pyproject.toml","pom.xml","tsconfig.json"].includes(base)
+  ) return 1;
+  if (["index","main","app","server","router","schema","routes"].some((key) => base.startsWith(key))) {
+    return 2;
+  }
+  return 3 + Math.min(path.split("/").length, 6);
 }
 
 // Admin-chat completion via OpenRouter, pooling ALL configured OpenRouter keys
@@ -1051,7 +1295,7 @@ async function listAdminChats(db, telegramId) {
 
 async function getOwnedAdminChat(db, telegramId, chatId) {
   const row = await db
-    .prepare("SELECT id, telegram_id, title, model FROM admin_chats WHERE id = ?")
+    .prepare("SELECT id, telegram_id, title, model, repo, repo_context FROM admin_chats WHERE id = ?")
     .bind(Number(chatId))
     .first();
   if (!row || Number(row.telegram_id) !== Number(telegramId)) return null;
@@ -1088,6 +1332,13 @@ async function setAdminChatModel(db, chatId, model) {
   await db
     .prepare("UPDATE admin_chats SET model = ?, updated_at = unixepoch() WHERE id = ?")
     .bind(model, Number(chatId))
+    .run();
+}
+
+async function setAdminChatRepo(db, chatId, repo, context) {
+  await db
+    .prepare("UPDATE admin_chats SET repo = ?, repo_context = ?, updated_at = unixepoch() WHERE id = ?")
+    .bind(repo, context, Number(chatId))
     .run();
 }
 

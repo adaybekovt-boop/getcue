@@ -31,9 +31,12 @@ import {
   getMessages,
   addMessage,
   setChatModel,
+  setChatRepo,
   touchChatMaybeTitle,
   deleteChat,
 } from "./services/adminChatStore.js";
+import { parseCommand, PLAN_PROMPT, CRITIC_PROMPT } from "./services/adminCommands.js";
+import { fetchRepoContext } from "../src/github/fetchRepoContext.js";
 import { setWebhook } from "./services/payments.js";
 import { getPoolStatus } from "../src/gemini/keyManager.js";
 
@@ -192,7 +195,12 @@ app.get("/api/admin/chats/:id/messages", validateInitData, (req, res) => {
   if (!adminGate(req, res)) return;
   const chat = getOwnedChat(req.telegramUser.id, req.params.id);
   if (!chat) return res.status(404).json({ error: "not_found" });
-  return res.json({ messages: getMessages(chat.id), model: chat.model, title: chat.title });
+  return res.json({
+    messages: getMessages(chat.id),
+    model: chat.model,
+    title: chat.title,
+    repo: chat.repo || null,
+  });
 });
 
 // Post a message to a chat → calls the chat's model, saves user + assistant.
@@ -219,6 +227,67 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     useModel = model;
   }
 
+  const typed = content.trim();
+  const command = parseCommand(typed);
+
+  // ── /github <repo> — load the repo's code into this chat's context. ──
+  if (command && command.cmd === "github") {
+    if (!command.arg) {
+      return res.json({
+        reply: "Usage: /github <repo url or owner/repo>",
+        model: useModel,
+        repo: chat.repo || null,
+      });
+    }
+    const repoArg = command.arg.includes("github.com")
+      ? command.arg
+      : `https://github.com/${command.arg}`;
+    let info;
+    try {
+      info = await fetchRepoContext(repoArg);
+    } catch (err) {
+      console.error("[AdminChat] /github failed:", err.message);
+      const fail = `Couldn't load that repo: ${err.message}`;
+      addMessage(chat.id, "user", typed, []);
+      addMessage(chat.id, "assistant", fail, []);
+      touchChatMaybeTitle(chat.id, typed);
+      return res.json({ reply: fail, model: useModel, repo: chat.repo || null });
+    }
+    setChatRepo(chat.id, info.repo, info.context);
+    const kb = Math.round(info.chars / 1024);
+    const reply =
+      `Loaded ${info.repo} — ${info.fileCount} of ${info.totalFiles} files in context (~${kb} KB).\n\n` +
+      `Ask anything about the code, run /plan <task> for an implementation plan, or /critic for an honest review.`;
+    addMessage(chat.id, "user", typed, []);
+    addMessage(chat.id, "assistant", reply, []);
+    touchChatMaybeTitle(chat.id, info.repo);
+    return res.json({ reply, model: useModel, repo: info.repo });
+  }
+
+  // ── Hidden system prompt: /plan, /critic, plus any loaded-repo context. ──
+  const systemParts = [];
+  if (command && command.cmd === "plan") systemParts.push(PLAN_PROMPT);
+  if (command && command.cmd === "critic") systemParts.push(CRITIC_PROMPT);
+  if (chat.repo_context) {
+    systemParts.push(
+      `REPOSITORY IN CONTEXT — the user loaded this repo with /github; use it as the source of truth when answering:\n\n${chat.repo_context}`
+    );
+  }
+
+  // Text actually sent to the model: strip the command word for /plan & /critic.
+  let taskText = typed;
+  if (command && (command.cmd === "plan" || command.cmd === "critic")) {
+    taskText = command.arg;
+    if (!taskText) {
+      taskText =
+        command.cmd === "critic"
+          ? chat.repo
+            ? `Review the ${chat.repo} repository loaded in context.`
+            : "Review the code and project discussed in this conversation."
+          : "Produce a deep implementation plan for the project/feature discussed in this conversation.";
+    }
+  }
+
   // Build context from stored history (server-side), then the new user message.
   const prior = getMessages(chat.id)
     .map((m) => ({
@@ -232,25 +301,30 @@ app.post("/api/admin/chats/:id/messages", validateInitData, async (req, res) => 
     }))
     .filter((m) => m.content.length);
 
-  const typed = content.trim();
   const blocks = await buildBlocks(att.list);
-  const newUser = blocks.length
+  const userContent = blocks.length
     ? {
         role: "user",
         content: [
-          { type: "text", text: typed || "Please respond to the attached image(s) and file(s)." },
+          { type: "text", text: taskText || "Please respond to the attached image(s) and file(s)." },
           ...blocks,
         ],
       }
-    : { role: "user", content: typed };
+    : { role: "user", content: taskText };
+
+  const outgoing = [];
+  if (systemParts.length) {
+    outgoing.push({ role: "system", content: systemParts.join("\n\n---\n\n") });
+  }
+  outgoing.push(...prior, userContent);
 
   try {
-    const reply = await openRouterChat([...prior, newUser], useModel);
+    const reply = await openRouterChat(outgoing, useModel);
     const attMeta = att.list.map((a) => ({ type: a.type, name: a.name || "file" }));
-    addMessage(chat.id, "user", typed, attMeta);
+    addMessage(chat.id, "user", typed, attMeta); // store typed text (with the slash command)
     addMessage(chat.id, "assistant", reply, []);
     touchChatMaybeTitle(chat.id, typed || attMeta[0]?.name || "");
-    return res.json({ reply, model: useModel });
+    return res.json({ reply, model: useModel, repo: chat.repo || null });
   } catch (err) {
     console.error("[AdminChat] failed:", err.message);
     return res.status(502).json({ error: "chat_failed" });

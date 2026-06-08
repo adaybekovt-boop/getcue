@@ -82,12 +82,14 @@ if (!hasAdminChats) {
     DROP TABLE IF EXISTS admin_chat_sessions;
 
     CREATE TABLE admin_chats (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      telegram_id INTEGER NOT NULL,
-      title       TEXT NOT NULL DEFAULT 'New chat',
-      model       TEXT NOT NULL,
-      created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
-      updated_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_id  INTEGER NOT NULL,
+      title        TEXT NOT NULL DEFAULT 'New chat',
+      model        TEXT NOT NULL,
+      repo         TEXT,
+      repo_context TEXT,
+      created_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
 
     CREATE TABLE admin_chat_messages (
@@ -102,6 +104,15 @@ if (!hasAdminChats) {
     CREATE INDEX idx_admin_chats_tid ON admin_chats(telegram_id, updated_at);
     CREATE INDEX idx_admin_chat_msgs_cid ON admin_chat_messages(chat_id, id);
   `);
+}
+
+// /github support: per-chat loaded repo + its fetched code context.
+const adminChatCols = db.prepare("PRAGMA table_info(admin_chats)").all();
+if (!adminChatCols.some((c) => c.name === "repo")) {
+  db.exec("ALTER TABLE admin_chats ADD COLUMN repo TEXT");
+}
+if (!adminChatCols.some((c) => c.name === "repo_context")) {
+  db.exec("ALTER TABLE admin_chats ADD COLUMN repo_context TEXT");
 }
 
 db.exec(`
