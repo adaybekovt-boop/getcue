@@ -675,34 +675,51 @@ function allOpenRouterKeys(env) {
   return [...new Set(keys)];
 }
 
-// One minimal generation per model using a single key (keeps subrequests bounded).
-async function testModelOnce(env, model, key) {
+// Minimal generation for one model, rotating across keys on HTTP 429 so a
+// rate-limited key doesn't mask a healthy model. A 429 across ALL keys is
+// reported as "limited" (not a hard "error") — the model is likely fine, just
+// throttled on the free tier right now.
+async function testModel(env, model, keys) {
   const started = Date.now();
-  try {
-    const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-        ...OPENROUTER_HEADERS,
-      },
-      body: JSON.stringify({
-        model: model.or,
-        messages: [{ role: "user", content: "Reply with the single word: ok" }],
-        max_tokens: 16,
-      }),
-    });
-    const ms = Date.now() - started;
-    if (!res.ok) return { id: model.id, label: model.label, status: "error", ms, detail: `HTTP ${res.status}` };
-    const data = await res.json().catch(() => null);
-    const text = data?.choices?.[0]?.message?.content;
-    if (!text || !text.trim()) {
-      return { id: model.id, label: model.label, status: "error", ms, detail: "empty response" };
+  let rateLimited = false;
+  for (const key of keys) {
+    try {
+      const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+          ...OPENROUTER_HEADERS,
+        },
+        body: JSON.stringify({
+          model: model.or,
+          messages: [{ role: "user", content: "Reply with the single word: ok" }],
+          max_tokens: 16,
+        }),
+      });
+      if (res.status === 429) {
+        rateLimited = true;
+        continue; // try the next key
+      }
+      const ms = Date.now() - started;
+      if (!res.ok) return { id: model.id, label: model.label, status: "error", ms, detail: `HTTP ${res.status}` };
+      const data = await res.json().catch(() => null);
+      const text = data?.choices?.[0]?.message?.content;
+      if (!text || !text.trim()) {
+        return { id: model.id, label: model.label, status: "error", ms, detail: "empty response" };
+      }
+      return { id: model.id, label: model.label, status: "ok", ms, sample: text.trim().slice(0, 80) };
+    } catch (err) {
+      return { id: model.id, label: model.label, status: "error", ms: Date.now() - started, detail: String(err.message || err) };
     }
-    return { id: model.id, label: model.label, status: "ok", ms, sample: text.trim().slice(0, 80) };
-  } catch (err) {
-    return { id: model.id, label: model.label, status: "error", ms: Date.now() - started, detail: String(err.message || err) };
   }
+  return {
+    id: model.id,
+    label: model.label,
+    status: rateLimited ? "limited" : "error",
+    ms: Date.now() - started,
+    detail: rateLimited ? "rate-limited (HTTP 429)" : "no key available",
+  };
 }
 
 async function handleAdminPanelModelTests(request, env) {
@@ -723,8 +740,12 @@ async function handleAdminPanelModelTests(request, env) {
     });
   }
 
-  const key = keys[0];
-  const results = await Promise.all(ADMIN_CHAT_MODEL_LIST.map((m) => testModelOnce(env, m, key)));
+  // Sequential (not parallel) so we don't fire a burst that trips free-tier
+  // rate limits and reports false failures.
+  const results = [];
+  for (const m of ADMIN_CHAT_MODEL_LIST) {
+    results.push(await testModel(env, m, keys));
+  }
   return json({ results, checkedAt: new Date().toISOString() });
 }
 
