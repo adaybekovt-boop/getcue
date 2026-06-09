@@ -593,10 +593,6 @@ export default {
         return await handleAdminPanelModels(request, env);
       }
 
-      if (url.pathname === "/api/admin/panel/model-tests" && request.method === "GET") {
-        return await handleAdminPanelModelTests(request, env);
-      }
-
       if (url.pathname === "/api/admin/chats" && request.method === "GET") {
         return await handleAdminChatList(request, env);
       }
@@ -868,32 +864,83 @@ async function checkOpenRouterKey(key) {
   }
 }
 
+// Validate a Groq key cheaply: listing models authenticates the key WITHOUT
+// consuming generation quota. 200 => the key is live.
+async function checkGroqKey(key) {
+  const masked = maskKey(key);
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) return { key: masked, status: "error", detail: `HTTP ${res.status}` };
+    return { key: masked, status: "ok", remaining: null };
+  } catch (err) {
+    return { key: masked, status: "error", detail: String(err.message || err) };
+  }
+}
+
+// Validate a Gemini key the same way — the models list is free and doesn't
+// touch the per-key generation/token quota.
+async function checkGeminiKey(key) {
+  const masked = maskKey(key);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/models?key=${encodeURIComponent(key)}`);
+    if (!res.ok) return { key: masked, status: "error", detail: `HTTP ${res.status}` };
+    return { key: masked, status: "ok", remaining: null };
+  } catch (err) {
+    return { key: masked, status: "error", detail: String(err.message || err) };
+  }
+}
+
+const dedupeKeys = (keys) => [...new Set(keys.filter(Boolean))];
+
+// Validate every stored API KEY (not each model): one cheap request per unique
+// key. This never sends a generation, so it won't burn free-tier limits the way
+// per-model probing did. Keys shared across env vars are deduped so a single
+// key is pinged once.
 async function handleAdminPanelKeyLimits(request, env) {
   const access = await requireAdminPanelAccess(request, env);
   if (access.error) return access.error;
 
   const defs = [
-    { label: "Gemini", keys: parseKeys(env.GEMINI_API_KEYS || env.GEMINI_API_KEY), kind: "gemini" },
-    { label: "SiliconFlow", keys: parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN), kind: "siliconflow" },
-    { label: "OpenRouter - User", keys: parseKeys(env.OPENROUTER_USER_KEY), kind: "openrouter" },
-    { label: "OpenRouter - Admin", keys: parseKeys(env.OPENROUTER_ADMIN_KEY), kind: "openrouter" },
-    { label: "Qwen", keys: parseKeys(env.QWEN_API_KEYS || env.QWEN_API_KEY), kind: "qwen" },
+    {
+      label: "OpenRouter",
+      keys: dedupeKeys([...parseKeys(env.OPENROUTER_USER_KEY), ...parseKeys(env.OPENROUTER_ADMIN_KEY)]),
+      check: checkOpenRouterKey,
+    },
+    {
+      label: "Groq",
+      keys: dedupeKeys([
+        ...parseKeys(env.GROQ_GPT_KEY),
+        ...parseKeys(env.GROQ_QWEN_KEY),
+        ...parseKeys(env.GROQ_META_KEY),
+      ]),
+      check: checkGroqKey,
+    },
+    {
+      label: "Gemini",
+      keys: dedupeKeys([
+        ...parseKeys(env.GEMINI_API_KEYS || env.GEMINI_API_KEY),
+        ...parseKeys(env.GEMINI_FLASH_LITE_KEY),
+        ...parseKeys(env.GEMINI_FLASH_KEY),
+        ...parseKeys(env.GEMINI_FRONTIER_KEY),
+        ...parseKeys(env.GEMINI_IMAGE_KEY),
+      ]),
+      check: checkGeminiKey,
+    },
+    {
+      label: "SiliconFlow",
+      keys: dedupeKeys(parseKeys(env.SILICONFLOW_API_KEYS || env.SILICONFLOW_API_TOKEN)),
+      check: checkSiliconFlowKey,
+    },
   ];
 
   const providers = await Promise.all(
-    defs.map(async (d) => {
-      let entries;
-      if (d.keys.length === 0) {
-        entries = [];
-      } else if (d.kind === "siliconflow") {
-        entries = await Promise.all(d.keys.map(checkSiliconFlowKey));
-      } else if (d.kind === "openrouter") {
-        entries = await Promise.all(d.keys.map(checkOpenRouterKey));
-      } else {
-        entries = d.keys.map((k) => ({ key: maskKey(k), status: "no_quota_api", remaining: null }));
-      }
-      return { provider: d.label, kind: d.kind, configured: d.keys.length, keys: entries };
-    })
+    defs.map(async (d) => ({
+      provider: d.label,
+      configured: d.keys.length,
+      keys: d.keys.length ? await Promise.all(d.keys.map(d.check)) : [],
+    }))
   );
 
   return json({ providers, checkedAt: new Date().toISOString() });
@@ -929,84 +976,6 @@ async function handleAdminPanelModels(request, env) {
   });
 
   return json({ models, totalAvailable: available.size, error, checkedAt: new Date().toISOString() });
-}
-
-function allOpenRouterKeys(env) {
-  const keys = parseKeys(env.OPENROUTER_ADMIN_KEY);
-  return [...new Set(keys)];
-}
-
-// Minimal generation for one model, using the admin OpenRouter key. A 429 is
-// reported as "limited" (not a hard "error") вЂ” the model is likely fine, just
-// throttled on the free tier right now.
-async function testModel(env, model, keys) {
-  const started = Date.now();
-  let rateLimited = false;
-  for (const key of keys) {
-    try {
-      const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-          ...OPENROUTER_HEADERS,
-        },
-        body: JSON.stringify({
-          model: model.or,
-          messages: [{ role: "user", content: "Reply with the single word: ok" }],
-          max_tokens: 16,
-        }),
-      });
-      if (res.status === 429) {
-        rateLimited = true;
-        continue; // try the next key
-      }
-      const ms = Date.now() - started;
-      if (!res.ok) return { id: model.id, label: model.label, status: "error", ms, detail: `HTTP ${res.status}` };
-      const data = await res.json().catch(() => null);
-      const text = data?.choices?.[0]?.message?.content;
-      if (!text || !text.trim()) {
-        return { id: model.id, label: model.label, status: "error", ms, detail: "empty response" };
-      }
-      return { id: model.id, label: model.label, status: "ok", ms, sample: text.trim().slice(0, 80) };
-    } catch (err) {
-      return { id: model.id, label: model.label, status: "error", ms: Date.now() - started, detail: String(err.message || err) };
-    }
-  }
-  return {
-    id: model.id,
-    label: model.label,
-    status: rateLimited ? "limited" : "error",
-    ms: Date.now() - started,
-    detail: rateLimited ? "rate-limited (HTTP 429)" : "no key available",
-  };
-}
-
-async function handleAdminPanelModelTests(request, env) {
-  const access = await requireAdminPanelAccess(request, env);
-  if (access.error) return access.error;
-
-  const keys = allOpenRouterKeys(env);
-  if (keys.length === 0) {
-    return json({
-      results: ADMIN_CHAT_MODEL_LIST.map((m) => ({
-        id: m.id,
-        label: m.label,
-        status: "error",
-        ms: null,
-        detail: "no OpenRouter key configured",
-      })),
-      checkedAt: new Date().toISOString(),
-    });
-  }
-
-  // Sequential (not parallel) so we don't fire a burst that trips free-tier
-  // rate limits and reports false failures.
-  const results = [];
-  for (const m of ADMIN_CHAT_MODEL_LIST) {
-    results.push(await testModel(env, m, keys));
-  }
-  return json({ results, checkedAt: new Date().toISOString() });
 }
 
 async function handleAdminChatList(request, env) {

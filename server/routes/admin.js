@@ -8,7 +8,7 @@ import { Router } from "express";
 import { validateInitData } from "../middleware/validateInitData.js";
 import { isAdmin } from "../services/admin.js";
 import { isAdminPanelUnlocked } from "../services/users.js";
-import { getKeyLimits, getOpenRouterModels, testModels } from "../utils/adminHelpers.js";
+import { getKeyLimits, getOpenRouterModels } from "../utils/adminHelpers.js";
 
 const router = Router();
 
@@ -39,16 +39,6 @@ router.get("/openrouter-models", async (req, res) => {
   } catch (err) {
     console.error("[AdminPanel] openrouter-models failed:", err);
     res.status(500).json({ error: "openrouter_models_failed" });
-  }
-});
-
-// 3. Minimal generation test per configured model.
-router.get("/model-tests", async (req, res) => {
-  try {
-    res.json(await testModels());
-  } catch (err) {
-    console.error("[AdminPanel] model-tests failed:", err);
-    res.status(500).json({ error: "model_tests_failed" });
   }
 });
 

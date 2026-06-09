@@ -3,51 +3,18 @@
 // src/gemini/keyManager.js) and queries each provider's public status endpoint,
 // so it never mutates the live rotating-pool state used by generation.
 //
-// Three capabilities back the /api/admin/panel routes:
-//   1. getKeyLimits()        вЂ” usage / remaining quota for stored keys.
-//   2. getOpenRouterModels() вЂ” which configured models OpenRouter currently lists.
-//   3. testModels()          вЂ” a minimal generation per configured model.
+// Two capabilities back the /api/admin/panel routes:
+//   1. getKeyLimits()        — validate every stored KEY (one cheap request per
+//                              unique key; never a model generation) + remaining
+//                              quota where the provider exposes it.
+//   2. getOpenRouterModels() — which configured models OpenRouter currently lists.
 import { getModels } from "../services/openrouterModels.js";
-import { openRouterChat } from "../services/adminChat.js";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 const SILICONFLOW_BASE = "https://api.siliconflow.cn/v1";
+const GROQ_BASE = "https://api.groq.com/openai/v1";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const FETCH_TIMEOUT_MS = 8000;
-
-// Providers whose stored keys we surface in the key-limits table. `kind` selects
-// the live check; `exclude` keeps one provider's prefix from swallowing another's
-// (SiliconFlow "sk-" must not match OpenRouter "sk-or-").
-const KEY_PROVIDERS = [
-  { label: "Gemini", multi: "GEMINI_API_KEYS", single: "GEMINI_API_KEY", kind: "gemini" },
-  {
-    label: "SiliconFlow",
-    multi: "SILICONFLOW_API_KEYS",
-    single: "SILICONFLOW_API_TOKEN",
-    kind: "siliconflow",
-    exclude: ["sk-or-"],
-  },
-  { label: "OpenRouter - User", multi: "OPENROUTER_USER_KEY", single: "OPENROUTER_USER_KEY", kind: "openrouter" },
-  { label: "OpenRouter - Admin", multi: "OPENROUTER_ADMIN_KEY", single: "OPENROUTER_ADMIN_KEY", kind: "openrouter" },
-  { label: "Qwen", multi: "QWEN_API_KEYS", single: "QWEN_API_KEY", kind: "qwen" },
-];
-
-// Same precedence as keyManager.parseList: comma-separated multi var first, then
-// the single-key fallback.
-function parseKeys(multiVar, singleVar, exclude = []) {
-  const out = [];
-  const multi = process.env[multiVar];
-  const raw =
-    multi && multi.trim()
-      ? multi.split(",").map((k) => k.trim()).filter(Boolean)
-      : process.env[singleVar] && process.env[singleVar].trim()
-      ? [process.env[singleVar].trim()]
-      : [];
-  for (const k of raw) {
-    if (exclude.some((x) => k.startsWith(x))) continue;
-    out.push(k);
-  }
-  return out;
-}
 
 // Show only enough of a key to identify it; never return the secret itself.
 function maskKey(key) {
@@ -121,23 +88,81 @@ async function checkOpenRouterKey(key) {
   }
 }
 
+// Validate a Groq / Gemini key cheaply: listing models authenticates the key
+// without consuming any generation/token quota. 200 => the key is live.
+async function checkGroqKey(key) {
+  const masked = maskKey(key);
+  try {
+    const { ok, status } = await fetchJson(`${GROQ_BASE}/models`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!ok) return { key: masked, status: "error", detail: `HTTP ${status}` };
+    return { key: masked, status: "ok", remaining: null };
+  } catch (err) {
+    return { key: masked, status: "error", detail: err.name === "AbortError" ? "timeout" : err.message };
+  }
+}
+
+async function checkGeminiKey(key) {
+  const masked = maskKey(key);
+  try {
+    const { ok, status } = await fetchJson(`${GEMINI_BASE}/models?key=${encodeURIComponent(key)}`);
+    if (!ok) return { key: masked, status: "error", detail: `HTTP ${status}` };
+    return { key: masked, status: "ok", remaining: null };
+  } catch (err) {
+    return { key: masked, status: "error", detail: err.name === "AbortError" ? "timeout" : err.message };
+  }
+}
+
+// Read one env var (comma-separated) into a trimmed key list.
+function envKeys(name) {
+  const raw = process.env[name];
+  return raw && raw.trim() ? raw.split(",").map((k) => k.trim()).filter(Boolean) : [];
+}
+const dedupeKeys = (keys) => [...new Set(keys.filter(Boolean))];
+
+// One cheap validation request per UNIQUE key (never a model generation), so it
+// won't burn free-tier limits the way per-model probing did. Keys shared across
+// env vars are deduped so a single key is pinged once.
 export async function getKeyLimits() {
+  const defs = [
+    {
+      label: "OpenRouter",
+      keys: dedupeKeys([...envKeys("OPENROUTER_USER_KEY"), ...envKeys("OPENROUTER_ADMIN_KEY")]),
+      check: checkOpenRouterKey,
+    },
+    {
+      label: "Groq",
+      keys: dedupeKeys([...envKeys("GROQ_GPT_KEY"), ...envKeys("GROQ_QWEN_KEY"), ...envKeys("GROQ_META_KEY")]),
+      check: checkGroqKey,
+    },
+    {
+      label: "Gemini",
+      keys: dedupeKeys([
+        ...envKeys("GEMINI_API_KEYS"),
+        ...envKeys("GEMINI_API_KEY"),
+        ...envKeys("GEMINI_FLASH_LITE_KEY"),
+        ...envKeys("GEMINI_FLASH_KEY"),
+        ...envKeys("GEMINI_FRONTIER_KEY"),
+        ...envKeys("GEMINI_IMAGE_KEY"),
+      ]),
+      check: checkGeminiKey,
+    },
+    {
+      label: "SiliconFlow",
+      keys: dedupeKeys([...envKeys("SILICONFLOW_API_KEYS"), ...envKeys("SILICONFLOW_API_TOKEN")]).filter(
+        (k) => !k.startsWith("sk-or-")
+      ),
+      check: checkSiliconFlowKey,
+    },
+  ];
+
   const providers = await Promise.all(
-    KEY_PROVIDERS.map(async (p) => {
-      const keys = parseKeys(p.multi, p.single, p.exclude);
-      let entries;
-      if (keys.length === 0) {
-        entries = [];
-      } else if (p.kind === "siliconflow") {
-        entries = await Promise.all(keys.map(checkSiliconFlowKey));
-      } else if (p.kind === "openrouter") {
-        entries = await Promise.all(keys.map(checkOpenRouterKey));
-      } else {
-        // gemini / qwen вЂ” no public per-key quota endpoint.
-        entries = keys.map((k) => ({ key: maskKey(k), status: "no_quota_api", remaining: null }));
-      }
-      return { provider: p.label, kind: p.kind, configured: keys.length, keys: entries };
-    })
+    defs.map(async (d) => ({
+      provider: d.label,
+      configured: d.keys.length,
+      keys: d.keys.length ? await Promise.all(d.keys.map(d.check)) : [],
+    }))
   );
   return { providers, checkedAt: new Date().toISOString() };
 }
@@ -177,34 +202,3 @@ export async function getOpenRouterModels() {
     checkedAt: new Date().toISOString(),
   };
 }
-
-// в”Ђв”Ђ 3. Model operability test в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђ
-// Fires a tiny generation at each configured model and reports success/latency
-// or the error. Runs in parallel; failures are isolated per model.
-async function testOneModel(model) {
-  const started = Date.now();
-  try {
-    const reply = await openRouterChat([{ role: "user", content: "Reply with the single word: ok" }], model.id);
-    return {
-      id: model.id,
-      label: model.label,
-      status: "ok",
-      ms: Date.now() - started,
-      sample: typeof reply === "string" ? reply.slice(0, 80) : "",
-    };
-  } catch (err) {
-    return {
-      id: model.id,
-      label: model.label,
-      status: "error",
-      ms: Date.now() - started,
-      detail: err?.message || String(err),
-    };
-  }
-}
-
-export async function testModels() {
-  const results = await Promise.all(getModels().map(testOneModel));
-  return { results, checkedAt: new Date().toISOString() };
-}
-

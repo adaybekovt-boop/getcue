@@ -90,7 +90,7 @@ export default function Admin({ me }) {
         {/* 1. Stored-key usage limits */}
         <Section
           title="Key limits"
-          hint="Usage & remaining quota for stored API keys"
+          hint="Validates each stored API key (one cheap request per key — no model generation) and shows remaining quota where available"
           endpoint="/api/admin/panel/key-limits"
           render={(data) => (
             <div className="ap-table-wrap">
@@ -160,39 +160,6 @@ export default function Admin({ me }) {
                         </span>
                       </td>
                       <td>{fmtNum(m.contextLength)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        />
-
-        {/* 3. Live model operability test */}
-        <Section
-          title="Model tests"
-          hint="Minimal generation request sent to each configured model"
-          endpoint="/api/admin/panel/model-tests"
-          render={(data) => (
-            <div className="ap-table-wrap">
-              <table className="ap-table">
-                <thead>
-                  <tr>
-                    <th>Model</th>
-                    <th>Result</th>
-                    <th>Latency</th>
-                    <th>Detail</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.results.map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.label}</td>
-                      <td>
-                        <Status value={r.status} />
-                      </td>
-                      <td>{r.ms != null ? `${r.ms} ms` : "—"}</td>
-                      <td className="ap-detail">{r.status === "ok" ? r.sample : r.detail}</td>
                     </tr>
                   ))}
                 </tbody>
