@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Cue</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* warm graphite — three readable surface levels: bg < card < input */
+    --bg:        #1a1714;
+    --bg-2:      #15120f;
+    --card:      #221e19;
+    --input:     #2a251f;
+    --raise:     #322c25;
+
+    --line:      #322b24;
+    --line-2:    #43392f;
+    --hair:      rgba(244, 240, 232, 0.05);
+
+    /* clay accent — primary action, active tab/segment, brand marks only */
+    --clay:      #c96442;
+    --clay-br:   #e0764d;
+    --clay-soft: rgba(201, 100, 66, 0.13);
+    --clay-bd:   rgba(201, 100, 66, 0.32);
+    --on-clay:   #1c0f0a;
+
+    --text:   #f4f0e8;
+    --text-2: #b0a89c;
+    --text-3: #756c60;
+
+    --display: "Fraunces", Georgia, serif;
+    --ui: "Inter", -apple-system, system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+
+    --r-sm: 10px;
+    --r-md: 14px;
+    --r-lg: 20px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --dur: 0.26s;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: radial-gradient(900px 620px at 50% -12%, #232019, #1a1714 62%);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 28px 16px;
+  }
+  button { font-family: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+  /* ---------- phone frame ---------- */
+  .phone {
+    width: 402px;
+    max-width: 100%;
+    height: 858px;
+    max-height: calc(100vh - 56px);
+    background: var(--bg);
+    border-radius: 46px;
+    border: 1px solid var(--line);
+    box-shadow: 0 50px 120px -40px rgba(0,0,0,0.82), inset 0 1px 0 var(--hair);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+
+  .app { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .scroll {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 20px 20px 10px;
+    scrollbar-width: none;
+    scroll-behavior: smooth;
+  }
+  .scroll::-webkit-scrollbar { display: none; }
+
+  .screen { display: none; flex-direction: column; }
+  .screen.on { display: flex; animation: fade 0.34s var(--ease); }
+  @keyframes fade { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- app header ---------- */
+  .head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 22px;
+  }
+  .brand {
+    font-family: var(--display); font-optical-sizing: auto;
+    font-weight: 600; font-size: 30px;
+    letter-spacing: -0.015em; line-height: 1;
+    color: var(--clay-br);
+  }
+  .head-right { display: flex; align-items: center; gap: 11px; }
+  .admin-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line-2); color: var(--text-2);
+    font-size: 12px; font-weight: 500; letter-spacing: 0.01em;
+    padding: 6px 11px; border-radius: 30px; background: var(--input);
+  }
+  .admin-pill .inf { font-size: 13px; color: var(--text); }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: linear-gradient(140deg, #4a4038, #2a241e);
+    border: 1px solid var(--line-2); flex-shrink: 0;
+  }
+
+  /* screen titles (Fraunces, used only here) */
+  .screen-title {
+    font-family: var(--display); font-weight: 500;
+    font-size: 27px; letter-spacing: -0.015em;
+    margin: 2px 0 20px;
+  }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--text-3); font-weight: 600;
+    margin: 26px 0 12px;
+  }
+  .eyebrow:first-child { margin-top: 0; }
+
+  /* ---------- segmented control (sliding thumb) ---------- */
+  .seg {
+    position: relative; display: flex; gap: 0;
+    background: var(--card); border: 1px solid var(--line);
+    padding: 4px; border-radius: 13px; margin-bottom: 20px;
+  }
+  .seg-thumb {
+    position: absolute; top: 4px; bottom: 4px; left: 0;
+    border-radius: 9px; background: var(--raise);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35), inset 0 1px 0 var(--hair);
+    transition: transform var(--dur) var(--ease), width var(--dur) var(--ease);
+    will-change: transform, width; z-index: 0;
+  }
+  .seg button {
+    position: relative; z-index: 1; flex: 1;
+    border: none; background: none; color: var(--text-2);
+    font-size: 13.5px; font-weight: 500; letter-spacing: 0.005em;
+    padding: 10px 4px; border-radius: 9px; white-space: nowrap;
+    transition: color var(--dur) var(--ease);
+  }
+  .seg button.on { color: var(--clay-br); font-weight: 600; }
+
+  /* ---------- fields ---------- */
+  .field {
+    background: var(--input); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 14px 15px;
+    transition: border-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+  }
+  .field:focus-within {
+    border-color: var(--clay-bd);
+    box-shadow: 0 0 0 3px var(--clay-soft);
+  }
+  .textarea { min-height: 138px; display: flex; flex-direction: column; }
+  .ta {
+    flex: 1; width: 100%; border: none; background: none; resize: none; outline: none;
+    color: var(--text); font-family: var(--ui); font-size: 15.5px; line-height: 1.5;
+    padding: 0; min-height: 64px;
+  }
+  .ta::placeholder { color: var(--text-2); }
+  .count {
+    margin-top: 10px; align-self: flex-end;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-3);
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+
+  /* quick-start empty state */
+  .starters { margin-top: 13px; transition: opacity 0.24s var(--ease); }
+  .starters[hidden] { display: none; }
+  .starters-label { font-size: 12.5px; color: var(--text-3); margin: 0 2px 10px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: 13px; font-weight: 450; color: var(--text-2);
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 30px; padding: 8px 13px; line-height: 1;
+    transition: border-color 0.18s var(--ease), color 0.18s var(--ease), transform 0.12s var(--ease);
+  }
+  .chip:hover { border-color: var(--line-2); color: var(--text); }
+  .chip:active { transform: scale(0.97); }
+
+  .gh-field { display: flex; align-items: center; gap: 11px; margin-top: 11px; }
+  .gh-field .gh-icon { color: var(--text-3); flex-shrink: 0; }
+  .gh-field input {
+    flex: 1; border: none; background: none; outline: none;
+    color: var(--text); font-family: var(--mono); font-size: 13.5px;
+  }
+  .gh-field input::placeholder { color: var(--text-2); }
+  .chip-opt {
+    font-size: 10px; letter-spacing: 0.07em; font-weight: 600;
+    color: var(--text-3); border: 1px solid var(--line-2);
+    padding: 3px 7px; border-radius: 6px; flex-shrink: 0;
+  }
+
+  /* model row */
+  .model-row { display: flex; align-items: center; gap: 12px; margin-top: 24px; }
+  .model-row .lab { font-size: 13px; color: var(--text-2); flex-shrink: 0; }
+  .model-select {
+    flex: 1; display: flex; align-items: center; justify-content: space-between;
+    background: var(--input); border: 1px solid var(--line);
+    border-radius: var(--r-sm); padding: 11px 13px;
+    transition: border-color 0.18s var(--ease);
+  }
+  .model-select:hover { border-color: var(--line-2); }
+  .model-select .val { font-size: 14px; font-weight: 500; color: var(--text); }
+  .tag-admin {
+    font-size: 10px; letter-spacing: 0.07em; font-weight: 600;
+    color: var(--text-3); border: 1px solid var(--line-2);
+    padding: 4px 8px; border-radius: 7px;
+  }
+
+  /* action bar */
+  .action-bar { display: flex; gap: 10px; align-items: stretch; margin-top: 16px; }
+  .pick {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--input); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 0 15px;
+    font-size: 14px; font-weight: 500; white-space: nowrap;
+    transition: border-color 0.18s var(--ease);
+  }
+  .pick:hover { border-color: var(--line-2); }
+  .pick .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  .pick .chev { color: var(--text-3); font-size: 11px; }
+  .btn-primary {
+    flex: 1; position: relative;
+    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+    background: var(--clay); color: var(--on-clay);
+    border: none; border-radius: var(--r-md); padding: 14px 18px;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.005em; overflow: hidden;
+    transition: background 0.2s var(--ease), transform 0.12s var(--ease), box-shadow 0.2s var(--ease);
+  }
+  .btn-primary:hover { background: var(--clay-br); transform: translateY(-1px); box-shadow: 0 8px 20px -10px var(--clay); }
+  .btn-primary:active { transform: translateY(0) scale(0.99); }
+  .btn-primary .arrow { transition: transform 0.2s var(--ease); }
+  .btn-primary:hover .arrow { transform: translateX(3px); }
+  .btn-primary.busy {
+    pointer-events: none; color: transparent;
+    background: linear-gradient(100deg, var(--clay) 32%, var(--clay-br) 50%, var(--clay) 68%);
+    background-size: 220% 100%; animation: shimmer 1.05s linear infinite;
+  }
+  .btn-primary.busy::after {
+    content: "Compiling…"; position: absolute; inset: 0;
+    display: grid; place-items: center; color: var(--on-clay); font-weight: 600;
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+  /* dropzone */
+  .dropzone {
+    border: 1.5px dashed var(--line-2); border-radius: var(--r-lg);
+    padding: 38px 20px; text-align: center; background: var(--input);
+    margin-bottom: 8px; transition: border-color 0.2s var(--ease), background 0.2s var(--ease);
+  }
+  .dropzone:hover { border-color: var(--clay-bd); background: var(--raise); }
+  .dropzone .ic { color: var(--text-3); margin-bottom: 12px; }
+  .dropzone .t { font-size: 15px; font-weight: 500; }
+  .dropzone .s { font-size: 12.5px; color: var(--text-3); margin-top: 5px; }
+  .via { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); margin: 11px 2px 0; }
+  .via b { color: var(--text-2); font-weight: 500; }
+
+  /* trending styles */
+  .row-head { display: flex; align-items: baseline; justify-content: space-between; margin: 24px 0 13px; }
+  .row-head .t { font-size: 14px; font-weight: 600; }
+  .row-head .s { font-size: 12px; color: var(--text-3); }
+  .styles { display: flex; gap: 11px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .styles::-webkit-scrollbar { display: none; }
+  .style-card { flex-shrink: 0; width: 96px; }
+  .style-thumb {
+    width: 96px; height: 96px; border-radius: var(--r-md);
+    border: 1px solid var(--line); position: relative;
+    display: grid; place-items: center; font-size: 30px; overflow: hidden;
+    transition: transform 0.18s var(--ease), border-color 0.18s var(--ease);
+  }
+  .style-card:hover .style-thumb { transform: translateY(-2px); border-color: var(--line-2); }
+  .style-thumb .badge {
+    position: absolute; top: 6px; left: 6px;
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.03em;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    color: #fff; padding: 3px 7px; border-radius: 20px;
+  }
+  .style-name { font-size: 12px; color: var(--text-2); margin-top: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .credits-line { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin: 18px 2px 0; }
+
+  /* ---------- compiled result (signature moment) ---------- */
+  .result-slot:empty { display: none; }
+  .result {
+    margin-top: 16px; border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--bg-2); overflow: hidden;
+    box-shadow: 0 14px 30px -22px rgba(0,0,0,0.9);
+    animation: fade 0.3s var(--ease);
+  }
+  .result-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 15px; border-bottom: 1px solid var(--line);
+  }
+  .result-label { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3); }
+  .result-model { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+  .result-body {
+    margin: 0; padding: 15px; font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+    color: var(--text-2); white-space: pre-wrap; word-break: break-word;
+    max-height: 300px; overflow: auto; scrollbar-width: none;
+  }
+  .result-body::-webkit-scrollbar { display: none; }
+  .result-body .tagline { color: var(--text-3); }
+  .rl { display: block; min-height: 1.62em; opacity: 0; }
+  .rl.in { animation: rise 0.4s var(--ease) forwards; }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .caret {
+    display: inline-block; width: 7px; height: 14px; vertical-align: -2px;
+    background: var(--clay); margin-left: 2px; animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+  .result-actions { display: flex; gap: 10px; padding: 12px 15px; border-top: 1px solid var(--line); }
+  .img-result {
+    height: 200px; background: linear-gradient(150deg, #2e2820, #18140f);
+    border-bottom: 1px solid var(--line);
+    display: grid; place-items: center; color: var(--text-3); font-size: 13px;
+    opacity: 0; transform: scale(0.985);
+  }
+  .img-result.in { animation: revealImg 0.5s var(--ease) forwards; }
+  @keyframes revealImg { to { opacity: 1; transform: none; } }
+
+  .btn-ghost {
+    flex: 1; background: var(--input); color: var(--text);
+    border: 1px solid var(--line-2); border-radius: var(--r-md);
+    padding: 11px 14px; font-size: 14px; font-weight: 500;
+    transition: background 0.18s var(--ease), border-color 0.18s var(--ease);
+  }
+  .btn-ghost:hover { background: var(--raise); border-color: var(--text-3); }
+  .btn-primary.slim { padding: 11px 14px; font-size: 14px; }
+
+  .nudge { animation: nudge 0.4s var(--ease); }
+  @keyframes nudge { 0%,100% { transform: none; } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+  /* ---------- history ---------- */
+  .hist-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 16px; margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+    transition: border-color 0.2s var(--ease), transform 0.16s var(--ease);
+  }
+  .hist-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+  .hc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+  .hc-model { display: inline-flex; align-items: center; gap: 7px; color: var(--text); font-size: 13px; font-weight: 600; }
+  .hc-model .gi { font-size: 13px; color: var(--text-3); }
+  .hc-date { font-family: var(--mono); font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .hc-task { font-size: 14.5px; line-height: 1.48; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .hc-prev {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+    color: var(--text-3); background: var(--bg-2);
+    border: 1px solid var(--line); border-radius: 9px;
+    padding: 10px 12px; margin-top: 12px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+
+  /* ---------- settings ---------- */
+  .set-card {
+    display: flex; align-items: center; gap: 14px;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 15px 16px; margin-bottom: 11px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.18);
+    transition: border-color 0.2s var(--ease), transform 0.16s var(--ease);
+  }
+  .set-card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+  .set-ic {
+    width: 42px; height: 42px; border-radius: 11px;
+    display: grid; place-items: center; flex-shrink: 0;
+    background: var(--raise); color: var(--text-2);
+  }
+  .set-body { flex: 1; min-width: 0; }
+  .set-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .badge-mini {
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    color: var(--text-2); border: 1px solid var(--line-2);
+    padding: 2px 6px; border-radius: 6px;
+  }
+  .set-sub { font-size: 12.5px; color: var(--text-3); margin-top: 3px; }
+  .set-card .chev { color: var(--text-3); font-size: 16px; transition: transform 0.18s var(--ease); }
+  .set-card:hover .chev { transform: translateX(2px); }
+
+  .promo { display: flex; gap: 10px; }
+  .promo .field { flex: 1; padding: 0 15px; display: flex; align-items: center; }
+  .promo input {
+    width: 100%; border: none; background: none; outline: none;
+    color: var(--text); font-size: 14px; padding: 13px 0;
+  }
+  .promo input::placeholder { color: var(--text-2); }
+  .promo button {
+    background: var(--clay); color: var(--on-clay); border: none;
+    border-radius: var(--r-md); padding: 0 22px; font-weight: 600; font-size: 14px;
+    transition: background 0.18s var(--ease), transform 0.12s var(--ease);
+  }
+  .promo button:hover { background: var(--clay-br); }
+  .promo button:active { transform: scale(0.98); }
+
+  .row-item {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--r-md); padding: 16px; margin-bottom: 11px;
+  }
+  .row-item .k { font-size: 15px; }
+  .row-item .v { font-size: 14px; color: var(--text-2); display: flex; align-items: center; gap: 7px; }
+  .row-item .v .inf { font-size: 16px; color: var(--text); }
+
+  /* ---------- bottom nav ---------- */
+  .nav {
+    flex-shrink: 0; display: flex;
+    border-top: 1px solid var(--line); background: var(--bg);
+    padding: 10px 8px calc(10px + env(safe-area-inset-bottom));
+  }
+  .nav button {
+    position: relative; flex: 1; border: none; background: none;
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    color: var(--text-3); font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
+    padding: 4px 0;
+    transition: color 0.2s var(--ease);
+  }
+  .nav button::before {
+    content: ""; position: absolute; top: -10px; left: 50%;
+    width: 26px; height: 2px; border-radius: 2px; background: var(--clay);
+    transform: translateX(-50%) scaleX(0);
+    transition: transform 0.26s var(--ease);
+  }
+  .nav button.on { color: var(--clay-br); }
+  .nav button.on::before { transform: translateX(-50%) scaleX(1); }
+  .nav button:active { transform: scale(0.94); }
+  .nav svg { width: 22px; height: 22px; transition: transform 0.2s var(--ease); }
+  .nav button.on svg { transform: translateY(-1px); }
+
+  :focus-visible { outline: 2px solid var(--clay-br); outline-offset: 2px; border-radius: 8px; }
+
+  @media (max-width: 440px) {
+    body { padding: 0; }
+    .phone { width: 100%; height: 100vh; max-height: none; border-radius: 0; border: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scroll { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="app">
+    <div class="scroll">
+
+      <!-- ================= TEXT ================= -->
+      <section class="screen on" data-screen="text" data-compile-scope>
+        <div class="head">
+          <div class="brand">Cue</div>
+          <div class="head-right">
+            <span class="admin-pill">Admin <span class="inf">∞</span></span>
+            <span class="avatar"></span>
+          </div>
+        </div>
+
+        <label class="field textarea">
+          <textarea class="ta" maxlength="2000" placeholder="Describe what you need…"></textarea>
+          <span class="count">0 / 2000</span>
+        </label>
+
+        <div class="starters">
+          <div class="starters-label">Start with an example</div>
+          <div class="chips">
+            <button class="chip">Summarize a paper for a non-expert</button>
+            <button class="chip">Refactor a function and explain the tradeoffs</button>
+            <button class="chip">Draft a follow-up email</button>
+            <button class="chip">Turn rough notes into a spec</button>
+          </div>
+        </div>
+
+        <div class="field gh-field">
+          <svg class="gh-icon" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2A10 10 0 0 0 8.84 21.5c.5.08.66-.22.66-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.1-1.47-1.1-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.91.83.1-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.9-1.29 2.74-1.02 2.74-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.16.57.67.48A10 10 0 0 0 12 2Z"/></svg>
+          <input type="text" placeholder="github.com/owner/repo" spellcheck="false" />
+          <span class="chip-opt">OPTIONAL</span>
+        </div>
+
+        <div class="model-row">
+          <span class="lab">Generation</span>
+          <div class="model-select">
+            <span class="val">GPT-OSS 20B</span>
+            <span class="tag-admin">ADMIN</span>
+          </div>
+        </div>
+
+        <div class="action-bar">
+          <div class="pick"><span class="dot"></span> Claude <span class="chev">▾</span></div>
+          <button class="btn-primary" data-compile>Compile prompt <span class="arrow">→</span></button>
+        </div>
+
+        <div class="result-slot"></div>
+      </section>
+
+      <!-- ================= IMAGE ================= -->
+      <section class="screen" data-screen="image">
+        <div class="head">
+          <div class="brand">Cue</div>
+          <div class="head-right">
+            <span class="admin-pill">Admin <span class="inf">∞</span></span>
+            <span class="avatar"></span>
+          </div>
+        </div>
+
+        <div class="seg" id="img-seg">
+          <span class="seg-thumb"></span>
+          <button data-m="t2p">Text → Prompt</button>
+          <button class="on" data-m="i2p">Image → Prompt</button>
+          <button data-m="p2i">Prompt → Image</button>
+        </div>
+
+        <!-- image -> prompt -->
+        <div data-mode="i2p" data-compile-scope>
+          <div class="dropzone">
+            <div class="ic"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/><path d="m21 15-5-5L5 21"/></svg></div>
+            <div class="t">Add an image</div>
+            <div class="s">JPG or PNG, up to 10 MB</div>
+          </div>
+
+          <div class="row-head"><span class="t">Trending styles</span><span class="s">Tap to apply</span></div>
+          <div class="styles">
+            <div class="style-card"><div class="style-thumb" style="background:linear-gradient(150deg,#c96442,#9a4628)"><span class="badge">🔥 Trending</span>🧸</div><div class="style-name">Toy figure</div></div>
+            <div class="style-card"><div class="style-thumb" style="background:linear-gradient(150deg,#4a4038,#2a241e)"><span class="badge">🔥 Trending</span>📼</div><div class="style-name">2000s camcorder</div></div>
+            <div class="style-card"><div class="style-thumb" style="background:linear-gradient(150deg,#2a2622,#191613)"><span class="badge">Popular</span>🎬</div><div class="style-name">Cinematic</div></div>
+            <div class="style-card"><div class="style-thumb" style="background:linear-gradient(150deg,#6e5c3e,#473a26)"><span class="badge">Popular</span>🎞️</div><div class="style-name">Vintage film</div></div>
+          </div>
+
+          <label class="field textarea" style="min-height:88px;margin-top:18px">
+            <textarea class="ta" placeholder="Describe what you want to create…"></textarea>
+          </label>
+
+          <div class="credits-line">100 credits</div>
+          <div class="action-bar">
+            <div class="pick"><span class="dot"></span> Midjourney <span class="chev">▾</span></div>
+            <button class="btn-primary" data-compile>Compile prompt <span class="arrow">→</span></button>
+          </div>
+          <div class="result-slot"></div>
+        </div>
+
+        <!-- prompt -> image -->
+        <div data-mode="p2i" data-compile-scope data-output="image" style="display:none">
+          <label class="field textarea" style="min-height:108px">
+            <textarea class="ta" placeholder="Describe the image to generate…"></textarea>
+          </label>
+          <div class="dropzone" style="margin-top:12px;padding:30px 20px">
+            <div class="ic"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 8v8M8 12h8"/></svg></div>
+            <div class="t">Add a reference image</div>
+            <div class="s">Optional · JPG or PNG, up to 10 MB</div>
+          </div>
+          <div class="via">via <b>gemini-2.5-flash-image</b></div>
+          <div class="action-bar">
+            <button class="btn-primary" data-compile>Generate image <span class="arrow">→</span></button>
+          </div>
+          <div class="result-slot"></div>
+        </div>
+
+        <!-- text -> prompt -->
+        <div data-mode="t2p" data-compile-scope style="display:none">
+          <label class="field textarea"><textarea class="ta" maxlength="2000" placeholder="Describe what you need…"></textarea><span class="count">0 / 2000</span></label>
+          <div class="action-bar" style="margin-top:18px">
+            <div class="pick"><span class="dot"></span> Claude <span class="chev">▾</span></div>
+            <button class="btn-primary" data-compile>Compile prompt <span class="arrow">→</span></button>
+          </div>
+          <div class="result-slot"></div>
+        </div>
+      </section>
+
+      <!-- ================= HISTORY ================= -->
+      <section class="screen" data-screen="history">
+        <div class="screen-title">History</div>
+
+        <div class="hist-card">
+          <div class="hc-top"><span class="hc-model"><span class="gi">✦</span> Claude</span><span class="hc-date">8 июня · 13:00</span></div>
+          <div class="hc-task">Задача: сделать нормальную отправку фото и файлов, потому что сейчас при отправке фото в админ-модели дублируется контекст.</div>
+          <div class="hc-prev">You are a senior backend engineer working on getcue. &lt;context&gt; The admin chat currently…</div>
+        </div>
+
+        <div class="hist-card">
+          <div class="hc-top"><span class="hc-model"><span class="gi">✦</span> Claude</span><span class="hc-date">8 июня · 12:57</span></div>
+          <div class="hc-task">Нужно сделать админ-панель — проверку лимитов на ключи, проверка моделей на OpenRouter, проверка работоспособности.</div>
+          <div class="hc-prev">ASSUMPTIONS (please correct if wrong): - The admin panel should validate each stored key…</div>
+        </div>
+
+        <div class="hist-card">
+          <div class="hc-top"><span class="hc-model"><span class="gi">K</span> Kimi</span><span class="hc-date">8 июня · 12:42</span></div>
+          <div class="hc-task">Нужно, чтобы Kimi сделал глубокий анализ репо, нашёл слабые части проекта и предложил, как их улучшить.</div>
+          <div class="hc-prev"># Role and Goal — You are an expert software analyst tasked with auditing the repository…</div>
+        </div>
+
+        <div class="hist-card">
+          <div class="hc-top"><span class="hc-model"><span class="gi">✦</span> Claude Thinking</span><span class="hc-date">7 июня · 23:28</span></div>
+          <div class="hc-task">Напиши промпт для самого себя, чтобы сделать в admin Kimi chat память — сохраняемые треды.</div>
+          <div class="hc-prev">You are an expert JavaScript developer familiar with the Cloudflare Worker backend…</div>
+        </div>
+      </section>
+
+      <!-- ================= SETTINGS ================= -->
+      <section class="screen" data-screen="settings">
+        <div class="screen-title">Settings</div>
+
+        <div class="eyebrow">Admin</div>
+        <div class="set-card">
+          <span class="set-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.6 4.8L18 8l-3.4 2.2L16 15l-4-2.8L8 15l1.4-4.8L6 8l4.4-1.2z"/></svg></span>
+          <div class="set-body">
+            <div class="set-title">Chat with Kimi <span class="badge-mini">K2.6</span></div>
+            <div class="set-sub">Direct chat · files and images</div>
+          </div>
+          <span class="chev">›</span>
+        </div>
+        <div class="set-card">
+          <span class="set-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 12l4-2"/></svg></span>
+          <div class="set-body">
+            <div class="set-title">Admin panel <span class="badge-mini">MONITOR</span></div>
+            <div class="set-sub">Key limits · models · health checks</div>
+          </div>
+          <span class="chev">›</span>
+        </div>
+
+        <div class="eyebrow">Promo code</div>
+        <div class="promo">
+          <div class="field"><input type="text" placeholder="Enter a promo code" spellcheck="false" /></div>
+          <button>Apply</button>
+        </div>
+
+        <div class="eyebrow">Account</div>
+        <div class="row-item"><span class="k">Status</span><span class="v">Admin</span></div>
+        <div class="row-item"><span class="k">Credits</span><span class="v"><span class="inf">∞</span> ›</span></div>
+        <div class="row-item"><span class="k">Version</span><span class="v">Cue 1.0</span></div>
+      </section>
+
+    </div>
+
+    <!-- bottom nav -->
+    <nav class="nav" id="nav">
+      <button class="on" data-go="text">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        Text
+      </button>
+      <button data-go="image">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="m21 15-5-5L5 21"/></svg>
+        Image
+      </button>
+      <button data-go="history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        History
+      </button>
+      <button data-go="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><circle cx="12" cy="12" r="3"/></svg>
+        Settings
+      </button>
+    </nav>
+  </div>
+</div>
+
+<script>
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const el = (t, c) => { const n = document.createElement(t); if (c) n.className = c; return n; };
+
+  /* ---------- nav ---------- */
+  const screens = $$('.screen');
+  const navBtns = $$('#nav button');
+  const scroll = $('.scroll');
+  navBtns.forEach(btn => btn.addEventListener('click', () => {
+    const go = btn.dataset.go;
+    navBtns.forEach(b => b.classList.toggle('on', b === btn));
+    screens.forEach(s => s.classList.toggle('on', s.dataset.screen === go));
+    scroll.scrollTop = 0;
+    if (go === 'image') requestAnimationFrame(moveThumb);
+  }));
+
+  /* ---------- segmented control ---------- */
+  const seg = $('#img-seg');
+  const thumb = $('.seg-thumb', seg);
+  const segBtns = $$('button', seg);
+  const modes = $$('[data-mode]');
+  function moveThumb() {
+    const on = $('button.on', seg);
+    if (!on || !on.offsetWidth) return;
+    thumb.style.width = on.offsetWidth + 'px';
+    thumb.style.transform = `translateX(${on.offsetLeft}px)`;
+  }
+  segBtns.forEach(b => b.addEventListener('click', () => {
+    segBtns.forEach(x => x.classList.toggle('on', x === b));
+    modes.forEach(m => {
+      const show = m.dataset.mode === b.dataset.m;
+      m.style.display = show ? 'block' : 'none';
+      if (!show) { const slot = $('.result-slot', m); if (slot) slot.innerHTML = ''; }
+    });
+    moveThumb();
+  }));
+  window.addEventListener('resize', moveThumb);
+
+  /* ---------- text screen: counter + empty-state chips ---------- */
+  $$('.field.textarea').forEach(field => {
+    const ta = $('.ta', field);
+    const count = $('.count', field);
+    const starters = field.parentElement && $('.starters', field.parentElement);
+    const sync = () => {
+      if (count) count.textContent = `${ta.value.length} / ${ta.maxLength}`;
+      if (starters) starters.hidden = ta.value.trim().length > 0;
+    };
+    ta.addEventListener('input', sync);
+    field._sync = sync;
+  });
+  $$('.chip').forEach(chip => chip.addEventListener('click', () => {
+    const section = chip.closest('[data-compile-scope]');
+    const field = $('.field.textarea', section);
+    const ta = $('.ta', field);
+    ta.value = chip.textContent.trim();
+    field._sync && field._sync();
+    ta.focus();
+  }));
+
+  /* ---------- compile (signature moment) ---------- */
+  function buildLines(intent, model) {
+    intent = intent.trim() || 'Describe what you need.';
+    return [
+      'You are an expert assistant helping with a focused task.',
+      '',
+      '<task>',
+      intent,
+      '</task>',
+      '',
+      'Work through it like this:',
+      '1. Restate the goal in one sentence.',
+      '2. Note any assumptions — ask before you guess.',
+      '3. Give the result, then a short note on tradeoffs.',
+      '',
+      '§ Keep the tone plain and direct. No filler.'
+    ];
+  }
+  function modelOf(scope) {
+    const pick = $('.pick', scope);
+    if (!pick) return 'Claude';
+    return pick.textContent.replace(/[▾]/g, '').trim().split(/\s+/)[0];
+  }
+
+  function revealPrompt(slot, intent, model) {
+    const lines = buildLines(intent, model);
+    const text = lines.join('\n').replace(/^§ /m, '');
+    slot.innerHTML = '';
+    const card = el('div', 'result');
+    card.dataset.text = text;
+
+    const head = el('div', 'result-head');
+    head.innerHTML = `<span class="result-label">Compiled prompt</span><span class="result-model">for ${model}</span>`;
+    const pre = el('pre', 'result-body');
+    lines.forEach(l => {
+      const s = el('span', 'rl');
+      if (l.startsWith('§ ')) { s.className += ' tagline'; s.textContent = l.slice(2); }
+      else s.textContent = l === '' ? ' ' : l;
+      pre.appendChild(s);
+    });
+    const actions = el('div', 'result-actions');
+    actions.innerHTML = `<button class="btn-ghost" data-reset>Start over</button><button class="btn-primary slim" data-copy>Copy prompt</button>`;
+
+    card.append(head, pre, actions);
+    slot.appendChild(card);
+
+    const spans = $$('.rl', pre);
+    if (reduced) {
+      spans.forEach(s => (s.style.opacity = 1));
+    } else {
+      spans.forEach((s, i) => { s.style.animationDelay = i * 52 + 'ms'; s.classList.add('in'); });
+      const caret = el('span', 'caret');
+      pre.appendChild(caret);
+      setTimeout(() => caret.remove(), spans.length * 52 + 650);
+    }
+    card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  function revealImage(slot, intent) {
+    slot.innerHTML = '';
+    const card = el('div', 'result');
+    const head = el('div', 'result-head');
+    head.innerHTML = `<span class="result-label">Generated image</span><span class="result-model">gemini-2.5-flash-image</span>`;
+    const tile = el('div', 'img-result');
+    tile.textContent = 'Preview';
+    const actions = el('div', 'result-actions');
+    actions.innerHTML = `<button class="btn-ghost" data-reset>Start over</button><button class="btn-primary slim" data-copy>Save image</button>`;
+    card.append(head, tile, actions);
+    slot.appendChild(card);
+    if (!reduced) tile.classList.add('in'); else tile.style.opacity = 1;
+    card.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  $$('[data-compile]').forEach(btn => btn.addEventListener('click', () => {
+    const scope = btn.closest('[data-compile-scope]');
+    const field = $('.field.textarea', scope);
+    const ta = field && $('.ta', field);
+    const slot = $('.result-slot', scope);
+    const intent = ta ? ta.value.trim() : '';
+    if (ta && !intent) {
+      field.classList.add('nudge');
+      setTimeout(() => field.classList.remove('nudge'), 420);
+      ta.focus();
+      return;
+    }
+    btn.classList.add('busy');
+    setTimeout(() => {
+      btn.classList.remove('busy');
+      if (scope.dataset.output === 'image') revealImage(slot, intent);
+      else revealPrompt(slot, intent, modelOf(scope));
+    }, reduced ? 0 : 720);
+  }));
+
+  /* result actions (delegated) */
+  document.addEventListener('click', e => {
+    const copy = e.target.closest('[data-copy]');
+    const reset = e.target.closest('[data-reset]');
+    if (copy) {
+      const card = copy.closest('.result');
+      if (card && card.dataset.text && navigator.clipboard) {
+        navigator.clipboard.writeText(card.dataset.text).catch(() => {});
+      }
+      const label = copy.textContent;
+      copy.textContent = label.startsWith('Save') ? 'Saved ✓' : 'Copied ✓';
+      setTimeout(() => (copy.textContent = label), 1400);
+    }
+    if (reset) {
+      const slot = reset.closest('.result-slot');
+      if (slot) slot.innerHTML = '';
+    }
+  });
+
+  /* init */
+  requestAnimationFrame(moveThumb);
+</script>
+</body>
+</html>
