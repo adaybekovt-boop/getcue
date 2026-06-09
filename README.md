@@ -1,123 +1,84 @@
-# Cue Telegram Mini App
+# Cue
 
-Cue is a Telegram Mini App for generating model-specific engineering prompts.
-It has:
+**Cue is a Telegram Mini App for AI prompt engineering.** You give it a rough
+intent, and it compiles a clean, model-specific prompt tuned for the target
+model — Claude, GPT, Gemini, or Kimi. Each model gets a prompt written the way
+*that* model responds best to, not a one-size-fits-all template.
 
-- Express backend with Telegram Mini App auth validation.
-- SQLite credit ledger.
-- Telegram Stars payments.
-- React/Vite client.
-- Gemini primary generation with SiliconFlow fallback.
-- Optional GitHub repo summary context.
+## What it does
 
-## Requirements
+Cue turns a half-formed idea into a production-ready prompt. Describe the task in
+plain language, pick the target model, and Cue handles the structure, framing,
+and conventions that model expects — XML tags and explicit scope for Claude,
+different shaping for GPT, Gemini, and Kimi.
 
-- Node.js 20+
-- Telegram bot token from BotFather
-- At least one generation provider key:
-  - `GEMINI_API_KEYS` / `GEMINI_API_KEY`
-  - or `SILICONFLOW_API_KEYS` / `SILICONFLOW_API_TOKEN`
+It also works with images: extract a reusable prompt from a picture, or generate
+an image from a description with an optional reference.
 
-## Setup
+## Features
 
-```bash
-npm install
-npm --prefix client install
-cp .env.example .env
-```
+- **Text → Prompt** — compile a rough intent into a model-specific engineering
+  prompt, with optional GitHub repository context for code-aware prompts.
+- **Image → Prompt** — turn an uploaded image into a reusable prompt, with a
+  gallery of trending styles (toy figure, cinematic, vintage film, and more).
+- **Prompt → Image** — generate an image from a description plus an optional
+  reference image.
+- **History** — every generated prompt, kept and searchable.
+- **Credits & payments** — a credit ledger with Telegram Stars purchases and
+  promo codes.
+- **Admin tools** — a hidden multi-platform admin chat (OpenRouter, Groq, and
+  Gemini) with file/image attachments and repo-aware commands, plus a monitoring
+  panel for API-key quotas and model health.
 
-Fill `.env` with real secrets. Do not commit `.env`.
+## How prompts are tuned
 
-Important variables:
+Cue keeps a strategy per target model that encodes how that model behaves:
 
-```bash
-BOT_TOKEN=...
-WEBHOOK_SECRET=...
-ADMIN_TELEGRAM_IDS=123456789,987654321
-DB_PATH=./data/cue.db
-GEMINI_API_KEYS=...
-SILICONFLOW_API_KEYS=...
-GITHUB_TOKEN=...
-```
+- **Claude** — literal instruction-following; XML-tag structure
+  (`<context>`, `<task>`, `<constraints>`, `<output_format>`), explicit scope,
+  context before the request.
+- **GPT / Gemini / Kimi** — each with its own framing, structure, and reasoning
+  conventions.
 
-## Run Locally
+The result is a prompt that reads like it was written by someone who knows the
+target model, not a generic wrapper.
 
-Backend:
+## Architecture
 
-```bash
-npm start
-```
+- **Edge backend** — a Cloudflare Worker serves the app and runs the entire API
+  on the edge, backed by **Cloudflare D1**. It handles generation, the admin
+  multi-platform chat, vision, image generation, the credit ledger, and Telegram
+  Stars payments.
+- **Client** — a React + Vite single-page app embedded as a Telegram Mini App
+  (`@twa-dev/sdk`), with a bottom-nav layout (Text / Image / History / Settings).
+- **Auth** — Telegram Mini App `initData` is verified server-side with HMAC-SHA256
+  on every authenticated request, so a `telegram_id` can't be spoofed.
+- **Generation providers** — OpenRouter (free model pool) and Gemini, with
+  automatic key rotation and provider fallback. Image generation uses
+  `gemini-2.5-flash-image`.
 
-Client:
+## Tech stack
 
-```bash
-npm --prefix client run dev
-```
+- **Frontend:** React 18, Vite, React Router, `@twa-dev/sdk`
+- **Backend:** Cloudflare Workers, D1 (SQLite at the edge)
+- **AI providers:** OpenRouter, Google Gemini, Groq
+- **Platform:** Telegram Mini Apps + Telegram Stars
 
-The Vite dev server proxies `/api` to `http://localhost:3000`.
+## Payments & credits
 
-## Build
+Generation costs credits; credits are bought with Telegram Stars or granted via
+promo codes. The model is designed to be safe under concurrency and duplicate
+delivery:
 
-```bash
-npm run build
-npm run client:build
-```
+- Credits are deducted **atomically before** a generation runs and refunded if
+  the provider fails — a balance can never go below zero or fund more work than
+  it paid for.
+- Payments verify the currency (`XTR`), the amount against the selected package,
+  and the payload server-side; the first paid purchase grants a bonus.
+- Duplicate payment webhooks are recorded once and never credit twice.
 
-## Payment Safety
+## Status
 
-Stars packages live in `server/services/users.js`.
-
-Current packages (value per Star increases with size):
-
-- `pack_10`: 10 Stars -> 1500 credits
-- `pack_25`: 25 Stars -> 4000 credits (+7%)
-- `pack_50`: 50 Stars -> 8500 credits (+13%)
-- `pack_100`: 100 Stars -> 18000 credits (+20%)
-- `pack_200`: 200 Stars -> 40000 credits (+33%)
-
-The first paid purchase grants +50% extra credits (`FIRST_PURCHASE_BONUS`).
-Generation endpoints deduct credits atomically BEFORE calling the provider and
-refund on provider failure (closes the concurrent-spend race).
-
-Payment handling verifies:
-
-- Telegram payment currency is `XTR`.
-- Telegram `total_amount` matches the selected package.
-- Payload credits and stars match server-side package config.
-- `telegram_payment_charge_id` / `provider_payment_charge_id` is recorded once.
-- Duplicate webhook delivery does not add credits twice.
-
-Credit spending is atomic and cannot move a user below zero.
-
-## Webhook Setup
-
-Webhook setup is admin-only:
-
-```http
-POST /api/admin/setup-webhook
-Content-Type: application/json
-x-telegram-initdata: <admin initData>
-
-{ "url": "https://your-domain.example" }
-```
-
-The server registers:
-
-```text
-https://your-domain.example/api/webhook/telegram
-```
-
-`WEBHOOK_SECRET` is required for payment webhooks. If it is missing, the webhook
-fails closed and refuses all Telegram updates.
-
-## Checks
-
-```bash
-npm run test:payments
-npm run client:build
-npm audit --omit=dev
-npm --prefix client audit --omit=dev
-```
-
-`npm run test:payments` uses a temporary SQLite database and does not call
-Telegram or any paid AI provider.
+Cue is a working Telegram Mini App with text and image prompt generation, a
+credit and payments system, and a full admin suite (multi-platform chat +
+monitoring panel) running on Cloudflare's edge.
