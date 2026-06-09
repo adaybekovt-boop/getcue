@@ -201,10 +201,10 @@ Rules:
 - Severity-rank each finding: [CRITICAL], [HIGH], [MEDIUM], [LOW].
 - For each finding use: [SEVERITY] short title вЂ” file/area вЂ” problem вЂ” why it breaks вЂ” concrete fix.
 - Finish with "Top 3 to fix first" in priority order.`;
-const REPO_CONTEXT_MAX_FILES = 24;
-const REPO_CONTEXT_MAX_TOTAL_CHARS = 36_000;
-const REPO_CONTEXT_PER_FILE_CHARS = 9_000;
-const REPO_CONTEXT_MAX_BLOB_BYTES = 100_000;
+const REPO_CONTEXT_MAX_BLOB_BYTES = 100_000; // skip blobs larger than this
+const REPO_PREVIEW_HEAD_LINES = 10;          // first N lines shown per file (cheat sheet)
+const REPO_PREVIEW_MAX_FILES = 40;           // how many files to fetch for previews (subrequest-safe)
+const REPO_PREVIEW_MAX_TOTAL_CHARS = 14_000; // total budget - small enough for 8k-context models
 const QWEN_MODEL = "qwen-max";
 const QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
 const PROMO_HITS = new Map();
@@ -1124,8 +1124,10 @@ async function handleAdminChatSend(request, env, chatId) {
       await setAdminChatRepo(env.DB, chat.id, info.repo, info.context);
       const kb = Math.round(info.chars / 1024);
       const reply =
-        `Loaded ${info.repo} вЂ” ${info.fileCount} of ${info.totalFiles} files in context (~${kb} KB).\n\n` +
-        "Ask anything about the code, run /plan <task> for an implementation plan, or /critic for an honest review.";
+        `Loaded ${info.repo} - cheat sheet of ${info.fileCount} files previewed ` +
+        `(~${fmtThousands(info.totalLines)} lines across ${info.totalFiles} source files, ~${kb} KB context).\n\n` +
+        `Each file shows its first lines so the model can map the project without overflowing its context. ` +
+        `Ask anything about the code, run /plan <task> for an implementation plan, or /critic for an honest review.`;
       await addAdminChatMessage(env.DB, chat.id, "user", typed, []);
       await addAdminChatMessage(env.DB, chat.id, "assistant", reply, []);
       await touchAdminChatMaybeTitle(env.DB, chat.id, info.repo);
@@ -1426,33 +1428,42 @@ async function fetchRepoContext(env, repoUrl) {
     .map((entry) => entry.path)
     .filter((path) => !isRepoNoise(path))
     .sort((a, b) => a.localeCompare(b));
-  const candidates = allBlobs
-    .filter(
-      (entry) =>
-        !isRepoNoise(entry.path) &&
-        isCodePath(entry.path) &&
-        (entry.size == null || entry.size <= REPO_CONTEXT_MAX_BLOB_BYTES)
-    )
+  // Code files only. Total lines are ESTIMATED from blob sizes (no extra
+  // fetches) - ~36 bytes/line is a fair average for source.
+  const codeBlobs = allBlobs.filter((entry) => !isRepoNoise(entry.path) && isCodePath(entry.path));
+  const totalBytes = codeBlobs.reduce((sum, entry) => sum + (entry.size || 0), 0);
+  const estTotalLines = Math.round(totalBytes / 36);
+
+  const candidates = codeBlobs
+    .filter((entry) => entry.size == null || entry.size <= REPO_CONTEXT_MAX_BLOB_BYTES)
     .sort((a, b) => repoPriority(a.path) - repoPriority(b.path) || a.path.localeCompare(b.path));
 
+  // CHEAT SHEET: counts + tree + the first N lines of each file (not full
+  // bodies), so even large repos stay small enough for any model's context.
   const parts = [];
   parts.push(`REPOSITORY: ${owner}/${repo}`);
   if (meta.description) parts.push(`DESCRIPTION: ${meta.description}`);
-  parts.push(`LANGUAGE: ${meta.language || "unknown"} В· BRANCH: ${branch}`);
+  parts.push(`LANGUAGE: ${meta.language || "unknown"} | BRANCH: ${branch}`);
+  parts.push("");
+  parts.push(
+    `OVERVIEW: ${codeBlobs.length} source files, ~${fmtThousands(estTotalLines)} total lines (estimated). ` +
+      `This is a CHEAT SHEET - each file below shows its first ${REPO_PREVIEW_HEAD_LINES} lines and its length ` +
+      `so you can map the project. If you need a file's full content, ask the user to paste it (or open it on GitHub).`
+  );
   parts.push("");
   parts.push(`FILE TREE (${fullTree.length} files):`);
   parts.push(
-    fullTree.slice(0, 200).join("\n") +
-      (fullTree.length > 200 ? `\n... (${fullTree.length - 200} more)` : "")
+    fullTree.slice(0, 300).join("\n") +
+      (fullTree.length > 300 ? `\n... (${fullTree.length - 300} more)` : "")
   );
   parts.push("");
-  parts.push("FILE CONTENTS:");
+  parts.push(`FILE PREVIEWS (first ${REPO_PREVIEW_HEAD_LINES} lines each):`);
 
   let total = parts.join("\n").length;
   let used = 0;
   let omitted = 0;
   for (const blobRef of candidates) {
-    if (used >= REPO_CONTEXT_MAX_FILES || total >= REPO_CONTEXT_MAX_TOTAL_CHARS) {
+    if (used >= REPO_PREVIEW_MAX_FILES || total >= REPO_PREVIEW_MAX_TOTAL_CHARS) {
       omitted++;
       continue;
     }
@@ -1463,15 +1474,13 @@ async function fetchRepoContext(env, repoUrl) {
     } catch {
       continue;
     }
-    if (content.includes(String.fromCharCode(0))) continue;
-    let body = content;
-    let note = "";
-    if (body.length > REPO_CONTEXT_PER_FILE_CHARS) {
-      body = body.slice(0, REPO_CONTEXT_PER_FILE_CHARS);
-      note = `\n... [truncated; ${content.length} chars total]`;
-    }
-    const block = `\n===== ${blobRef.path} =====\n${body}${note}\n`;
-    if (total + block.length > REPO_CONTEXT_MAX_TOTAL_CHARS && used > 0) {
+    if (content.includes(String.fromCharCode(0))) continue; // binary
+    const lines = content.split("\n");
+    const head = lines.slice(0, REPO_PREVIEW_HEAD_LINES).join("\n");
+    const more = lines.length - REPO_PREVIEW_HEAD_LINES;
+    const note = more > 0 ? `\n... (+${more} more lines)` : "";
+    const block = `\n----- ${blobRef.path} (${lines.length} lines) -----\n${head}${note}\n`;
+    if (total + block.length > REPO_PREVIEW_MAX_TOTAL_CHARS && used > 0) {
       omitted++;
       continue;
     }
@@ -1480,15 +1489,21 @@ async function fetchRepoContext(env, repoUrl) {
     used++;
   }
   if (omitted > 0) {
-    parts.push(`\n[${omitted} more source files omitted to fit the context window]`);
+    parts.push(`\n[${omitted} more files not previewed - they're in the FILE TREE above; ask for any specific one.]`);
   }
   return {
     repo: `${owner}/${repo}`,
     context: parts.join("\n"),
     fileCount: used,
-    totalFiles: fullTree.length,
+    totalFiles: codeBlobs.length,
+    totalLines: estTotalLines,
     chars: total,
   };
+}
+
+// Thousands separator without relying on full-ICU Intl in the Worker runtime.
+function fmtThousands(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
 function parseGithubRepoUrlLoose(repoUrl) {
